@@ -1,0 +1,53 @@
+version: "3.8"
+
+services:
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: easkb-chroma
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    volumes:
+      - chroma-data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    networks:
+      - easkb-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: easkb-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - easkb-net
+
+  mysql:
+    image: mysql:8.0
+    container_name: easkb-mysql
+    restart: unless-stopped
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: after_sales_agent
+      MYSQL_USER: agent
+      MYSQL_PASSWORD: agent_password
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - easkb-net
+
+volumes:
+  chroma-data:
+  redis-data:
+  mysql-data:
+
+networks:
+  easkb-net:
+    driver: bridge
