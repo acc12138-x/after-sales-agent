@@ -5,13 +5,16 @@ from langgraph.types import interrupt
 
 from app.workflows.state import AgentState
 
-CONFIDENCE_THRESHOLD = 0.6
+CONFIDENCE_THRESHOLD = 0.5          # 从 0.6 降到 0.5
 HIGH_RISK_INTENTS = {"human", "complaint"}
 HIGH_RISK_TOOLS = {"refund", "reassign"}
+SKIP_CONFIDENCE_INTENTS = {"ticket", "order"}
 
 
 def need_hitl(state: AgentState) -> bool:
     intent = state.get("intent", "")
+    if intent in SKIP_CONFIDENCE_INTENTS:
+        return False
     if intent in HIGH_RISK_INTENTS:
         return True
     if state.get("tool_name") in HIGH_RISK_TOOLS:
@@ -33,7 +36,6 @@ def hitl_gate_node(state: AgentState) -> AgentState:
 
     reason = state.get("hitl_reason") or "需要人工确认"
 
-    # 真正的中断：LangGraph 会暂停，等待 resume 传入 decision
     decision = interrupt({
         "type": "hitl",
         "reason": reason,
