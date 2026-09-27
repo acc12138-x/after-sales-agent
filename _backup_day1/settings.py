@@ -1,3 +1,4 @@
+
 from functools import lru_cache
 import os
 
@@ -21,50 +22,33 @@ class Settings(BaseSettings):
     app_debug: bool = True
     log_level: str = "DEBUG"
 
-    # ---------- Provider 切换 ----------
-    llm_provider: str = "ollama"
-    embedding_provider: str = "ollama"
-
-    # ---------- Ollama ----------
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_embedding_model: str = "bge-m3:latest"
     ollama_llm_model: str = "qwen2.5-1.5b:latest"
 
-    # ---------- DeepSeek ----------
-    deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"
-
-    # ---------- DashScope ----------
-    dashscope_api_key: str = ""
-    dashscope_base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    dashscope_embedding_model: str = "text-embedding-v3"
-
-    # ---------- 向量库 ----------
     chroma_persist_dir: str = "./data/chroma"
     chroma_collection: str = "knowledge_base"
 
-    # ---------- RAG ----------
     chunk_size: int = 512
     chunk_overlap: int = 64
     top_k_retrieve: int = 20
     top_k_rerank: int = 5
     rrf_k: int = 60
 
-    # ---------- Redis ----------
     redis_host: str = "127.0.0.1"
     redis_port: int = 6379
     redis_db: int = 0
 
-    # ---------- MySQL ----------
     mysql_host: str = "127.0.0.1"
     mysql_port: int = 3306
     mysql_user: str = "agent"
     mysql_password: str = "agent_password"
     mysql_database: str = "after_sales_agent"
 
-    # ---------- 兼容旧字段 ----------
     llm_router_mode: str = "hybrid"
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-chat"
 
 
 @lru_cache

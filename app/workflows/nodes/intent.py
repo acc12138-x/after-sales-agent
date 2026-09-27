@@ -1,28 +1,24 @@
-
+"""意图识别节点：使用可复用的 IntentEngine。"""
 from __future__ import annotations
 import re
 from typing import Dict
 
+from app.intent.factory import get_intent_engine
 from app.workflows.state import AgentState
 
-RULES = [
-    ("ticket",    [r"报修", r"报障", r"修一下", r"坏了", r"故障", r"创建工单", r"建单"]),
-    ("order",     [r"订单", r"物流", r"发货", r"退货", r"换货", r"退款"]),
-    ("complaint", [r"投诉", r"差评", r"太差", r"不满意"]),
-    ("human",     [r"转人工", r"人工客服", r"找人"]),
-]
-
-SLOT_KEYWORDS = {
+# 槽位抽取规则（可扩展）
+SLOT_PATTERNS = {
     "device_model": [r"([A-Z]{1,4}\d{2,5})", r"型号[：: ]*([A-Za-z0-9\-]+)"],
     "error_code":   [r"([Ee]\d{2,4})"],
     "phone":        [r"(1[3-9]\d{9})"],
+    "order_id":     [r"([Oo]\d{8,20})"],
     "address":      [r"(地址[：: ].+)"],
 }
 
 
 def _extract_slots(text: str) -> Dict:
     slots: Dict = {}
-    for key, patterns in SLOT_KEYWORDS.items():
+    for key, patterns in SLOT_PATTERNS.items():
         for p in patterns:
             m = re.search(p, text)
             if m:
@@ -32,16 +28,18 @@ def _extract_slots(text: str) -> Dict:
 
 
 def detect_intent(text: str) -> str:
-    for intent, patterns in RULES:
-        for p in patterns:
-            if re.search(p, text, re.IGNORECASE):
-                return intent
-    return "qa"
+    """兼容旧接口：返回 top1 意图 id，无命中返回 qa。"""
+    engine = get_intent_engine()
+    top = engine.classify_top(text)
+    return top.id if top else "qa"
 
 
 def intent_node(state: AgentState) -> AgentState:
     text = state.get("user_input", "")
-    intent = detect_intent(text)
+    engine = get_intent_engine()
+    top = engine.classify_top(text)
+    intent_id = top.id if top else "qa"
+
     slots = state.get("slots", {}) or {}
     slots.update(_extract_slots(text))
 
@@ -50,7 +48,7 @@ def intent_node(state: AgentState) -> AgentState:
 
     return {
         **state,
-        "intent": intent,
+        "intent": intent_id,
         "slots": slots,
         "messages": messages,
         "flow_status": "running",

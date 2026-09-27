@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 import re
 from typing import Dict, List
@@ -61,6 +62,7 @@ def clean_answer(text: str) -> str:
 
 
 def _is_refusal(text: str) -> bool:
+    """判断答案是否是模型过度保守的拒答。"""
     if not text or len(text.strip()) < 3:
         return True
     for kw in NO_INFO_KEYWORDS:
@@ -69,19 +71,9 @@ def _is_refusal(text: str) -> bool:
     return False
 
 
-def _should_use_cloud() -> bool:
-    s = get_settings()
-    if s.llm_provider == "deepseek" and s.deepseek_api_key:
-        return True
-    return False
-
-
 def get_llm(use_cloud: bool = False):
     global _LLM_LOCAL, _LLM_CLOUD
     s = get_settings()
-
-    if _should_use_cloud():
-        use_cloud = True
 
     if use_cloud and s.deepseek_api_key:
         if _LLM_CLOUD is None:
@@ -135,9 +127,11 @@ def format_context(chunks: List[Dict], max_chunks: int = 3) -> str:
 
 
 def _fallback_from_chunks(chunks: List[Dict]) -> str:
+    """当 LLM 拒答或空答案时，用最相关的检索片段兜底。"""
     if not chunks:
         return "暂无相关依据，建议转人工。"
     text = chunks[0]["text"].strip().replace("\n", " ")
+    # 取前 150 字
     snippet = text[:150].rstrip()
     return f"{snippet} [1]"
 
@@ -158,7 +152,7 @@ def generate_node(state: AgentState) -> AgentState:
     context = format_context(chunks, max_chunks=3)
     prompt = PROMPT.format(context=context, question=question)
 
-    use_cloud = _should_use_cloud()
+    use_cloud = bool(s.deepseek_api_key)
     raw = ""
     answer = ""
     try:
@@ -168,6 +162,7 @@ def generate_node(state: AgentState) -> AgentState:
     except Exception as e:
         answer = f"生成失败：{e}"
 
+    # === 关键 fallback：模型拒答或空答案时，用检索片段兜底 ===
     if _is_refusal(answer):
         answer = _fallback_from_chunks(chunks)
 
