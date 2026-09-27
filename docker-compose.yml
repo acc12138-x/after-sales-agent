@@ -32,7 +32,7 @@ services:
     container_name: easkb-mysql
     restart: unless-stopped
     ports:
-      - "3306:3306"
+      - "3307:3306"
     environment:
       MYSQL_ROOT_PASSWORD: root_password
       MYSQL_DATABASE: after_sales_agent

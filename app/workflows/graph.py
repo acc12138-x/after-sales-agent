@@ -16,7 +16,9 @@ from app.workflows.nodes.order_node import order_node
 from app.workflows.nodes.action_exec import action_exec_node
 
 
-RULE_INTENTS = {"return", "exchange", "refund", "warranty", "repair"}
+# 走规则引擎的意图（需要匹配售后规则）
+RULE_INTENTS = {"return", "exchange", "refund", "warranty"}
+# 查询类意图
 QUERY_INTENTS = {"order_query", "logistics"}
 
 
@@ -37,11 +39,13 @@ def route_after_slot(state: AgentState) -> str:
         return "context_collect"
     if intent == "ticket":
         return "ticket_node"
+    if intent == "repair":
+        # 维修/故障：如果没设备信息就追问，有就走 RAG
+        return "rag_search"
     return "rag_search"
 
 
 def route_after_context(state: AgentState) -> str:
-    # 缺信息追问 -> 直接结束
     if state.get("flow_status") == "waiting" and state.get("missing_slots"):
         return "end"
     intent = state.get("intent", "")

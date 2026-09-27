@@ -161,6 +161,14 @@ async def reload_all():
     except Exception as exc:
         reloaded.append(f"intents_err: {exc}")
 
+    # db
+    try:
+        from app.db.session import reset_engine
+        reset_engine()
+        reloaded.append("db")
+    except Exception as exc:
+        reloaded.append(f"db_err: {exc}")
+
     return {"status": "reloaded", "components": reloaded}
 
 
