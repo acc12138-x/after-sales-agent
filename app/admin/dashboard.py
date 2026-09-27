@@ -81,11 +81,24 @@ with st.sidebar:
         st.stop()
 
     st.divider()
-    st.markdown("**当前配置**")
-    st.caption(f"模型: `{settings.ollama_llm_model}`")
-    st.caption(f"嵌入: `{settings.ollama_embedding_model}`")
-    st.caption(f"云端 Key: `{'已配置' if settings.deepseek_api_key else '未配置'}`")
-    st.caption(f"Chunk: {settings.chunk_size} / overlap {settings.chunk_overlap}")
+    st.markdown("**当前配置（实时）**")
+
+    # 通过 HTTP 读 FastAPI 的 .env 最新值，避免进程内缓存
+    _cfg_resp = api_get("/admin/config") or {}
+    _cfg = _cfg_resp.get("config", {})
+
+    if _cfg:
+        st.caption(f"LLM Provider: `{_cfg.get('LLM_PROVIDER', 'ollama')}`")
+        _llm_model = _cfg.get("OLLAMA_LLM_MODEL") if _cfg.get("LLM_PROVIDER") == "ollama" else _cfg.get("DEEPSEEK_MODEL")
+        st.caption(f"模型: `{_llm_model or '未配置'}`")
+        st.caption(f"嵌入: `{_cfg.get('OLLAMA_EMBEDDING_MODEL', 'bge-m3')}`")
+        _has_key = bool(_cfg.get("DEEPSEEK_API_KEY") and _cfg["DEEPSEEK_API_KEY"] != "***")
+        st.caption(f"云端 Key: `{'已配置' if _has_key else '未配置'}`")
+        st.caption(f"Chunk: {_cfg.get('CHUNK_SIZE') or 512} / overlap {_cfg.get('CHUNK_OVERLAP') or 64}")
+    else:
+        # 退化到本地 settings
+        st.caption(f"模型: `{settings.ollama_llm_model}`")
+        st.caption(f"嵌入: `{settings.ollama_embedding_model}`")
 
     st.divider()
     # FastAPI 探活
@@ -287,56 +300,152 @@ with tab_ticket:
 # Tab 4: 系统配置
 # ============================================================
 with tab_config:
-    st.subheader("⚙️ 系统配置")
+    st.subheader("⚙️ 系统配置（热重载）")
 
-    env_path = ROOT / ".env"
-    if env_path.exists():
-        env_content = env_path.read_text(encoding="utf-8")
+    # 拉取可选项
+    prov = api_get("/admin/providers") or {}
+    cfg_resp = api_get("/admin/config") or {}
+    cfg = cfg_resp.get("config", {})
 
-        cols = st.columns(2)
-        with cols[0]:
-            st.markdown("##### 模型")
-            ollama_url = st.text_input("Ollama 地址", value=settings.ollama_base_url)
-            llm_model = st.text_input("LLM 模型", value=settings.ollama_llm_model)
-            embed_model = st.text_input("嵌入模型", value=settings.ollama_embedding_model)
-            deepseek_key = st.text_input("DeepSeek Key", value="", type="password")
+    st.markdown("##### 🧠 模型 Provider")
 
-        with cols[1]:
-            st.markdown("##### RAG 参数")
-            chunk_size = st.number_input("Chunk", value=settings.chunk_size, min_value=128, max_value=2048)
-            chunk_overlap = st.number_input("Overlap", value=settings.chunk_overlap, min_value=0, max_value=512)
-            top_k_retrieve = st.number_input("召回 TopK", value=settings.top_k_retrieve, min_value=5, max_value=100)
-            top_k_rerank = st.number_input("重排 TopK", value=settings.top_k_rerank, min_value=1, max_value=20)
+    col1, col2 = st.columns(2)
 
-        if st.button("💾 保存配置", type="primary"):
-            new_env = env_content
-            replacements = {
-                "OLLAMA_BASE_URL": ollama_url,
-                "OLLAMA_LLM_MODEL": llm_model,
-                "OLLAMA_EMBEDDING_MODEL": embed_model,
+    with col1:
+        llm_opts = [p["value"] for p in prov.get("llm_providers", [])] or ["ollama", "deepseek"]
+        llm_labels = {p["value"]: p["label"] for p in prov.get("llm_providers", [])}
+        cur_llm = cfg.get("LLM_PROVIDER", "ollama")
+        llm_provider = st.selectbox(
+            "LLM Provider",
+            options=llm_opts,
+            index=llm_opts.index(cur_llm) if cur_llm in llm_opts else 0,
+            format_func=lambda x: llm_labels.get(x, x),
+        )
+
+        if llm_provider == "ollama":
+            ollama_models = prov.get("ollama_models_available", [])
+            cur_model = cfg.get("OLLAMA_LLM_MODEL", "")
+            default_idx = ollama_models.index(cur_model) if cur_model in ollama_models else 0
+            llm_model = st.selectbox("Ollama 模型", options=ollama_models, index=default_idx) if ollama_models else st.text_input("模型名", value=cur_model)
+        else:
+            ds_models = prov.get("deepseek_models", ["deepseek-chat"])
+            cur_model = cfg.get("DEEPSEEK_MODEL", "deepseek-chat")
+            llm_model = st.selectbox("DeepSeek 模型", options=ds_models,
+                                     index=ds_models.index(cur_model) if cur_model in ds_models else 0)
+            deepseek_key = st.text_input(
+                "DeepSeek API Key",
+                value=cfg.get("DEEPSEEK_API_KEY", ""),
+                type="password",
+                help="留空则不更新已保存的 key",
+            )
+
+    with col2:
+        emb_opts = [p["value"] for p in prov.get("embedding_providers", [])] or ["ollama", "dashscope"]
+        emb_labels = {p["value"]: p["label"] for p in prov.get("embedding_providers", [])}
+        cur_emb = cfg.get("EMBEDDING_PROVIDER", "ollama")
+        emb_provider = st.selectbox(
+            "Embedding Provider",
+            options=emb_opts,
+            index=emb_opts.index(cur_emb) if cur_emb in emb_opts else 0,
+            format_func=lambda x: emb_labels.get(x, x),
+        )
+
+        if emb_provider == "ollama":
+            emb_models = prov.get("ollama_embedding_available", [])
+            cur_emb_model = cfg.get("OLLAMA_EMBEDDING_MODEL", "")
+            idx = emb_models.index(cur_emb_model) if cur_emb_model in emb_models else 0
+            emb_model = st.selectbox("Ollama 嵌入模型", options=emb_models, index=idx) if emb_models else st.text_input("嵌入模型名", value=cur_emb_model)
+        else:
+            ds_emb = prov.get("dashscope_models", ["text-embedding-v3"])
+            cur_emb_model = cfg.get("DASHSCOPE_EMBEDDING_MODEL", "text-embedding-v3")
+            emb_model = st.selectbox("DashScope 嵌入模型", options=ds_emb,
+                                     index=ds_emb.index(cur_emb_model) if cur_emb_model in ds_emb else 0)
+            dash_key = st.text_input(
+                "DashScope API Key",
+                value=cfg.get("DASHSCOPE_API_KEY", ""),
+                type="password",
+            )
+
+    st.divider()
+    st.markdown("##### 🔧 RAG 参数")
+    c1, c2, c3, c4 = st.columns(4)
+    with c1:
+        chunk_size = st.number_input("Chunk Size", value=int(cfg.get("CHUNK_SIZE") or 512), min_value=128, max_value=2048)
+    with c2:
+        chunk_overlap = st.number_input("Overlap", value=int(cfg.get("CHUNK_OVERLAP") or 64), min_value=0, max_value=512)
+    with c3:
+        top_k_retrieve = st.number_input("召回 TopK", value=int(cfg.get("TOP_K_RETRIEVE") or 20), min_value=5, max_value=100)
+    with c4:
+        top_k_rerank = st.number_input("重排 TopK", value=int(cfg.get("TOP_K_RERANK") or 5), min_value=1, max_value=20)
+
+    st.divider()
+
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        if st.button("💾 保存配置", type="primary", use_container_width=True):
+            updates = {
+                "LLM_PROVIDER": llm_provider,
+                "EMBEDDING_PROVIDER": emb_provider,
                 "CHUNK_SIZE": str(chunk_size),
                 "CHUNK_OVERLAP": str(chunk_overlap),
                 "TOP_K_RETRIEVE": str(top_k_retrieve),
                 "TOP_K_RERANK": str(top_k_rerank),
             }
-            if deepseek_key:
-                replacements["DEEPSEEK_API_KEY"] = deepseek_key
+            if llm_provider == "ollama":
+                updates["OLLAMA_LLM_MODEL"] = llm_model
+            else:
+                updates["DEEPSEEK_MODEL"] = llm_model
+                if deepseek_key:
+                    updates["DEEPSEEK_API_KEY"] = deepseek_key
 
-            for k, v in replacements.items():
-                new_env = re.sub(rf"^{k}=.*$", f"{k}={v}", new_env, flags=re.MULTILINE)
+            if emb_provider == "ollama":
+                updates["OLLAMA_EMBEDDING_MODEL"] = emb_model
+            else:
+                updates["DASHSCOPE_EMBEDDING_MODEL"] = emb_model
+                if dash_key:
+                    updates["DASHSCOPE_API_KEY"] = dash_key
 
-            env_path.write_text(new_env, encoding="utf-8", newline="\n")
-            st.success("✅ 已保存。需重启 FastAPI 生效。")
+            with st.spinner("保存中..."):
+                try:
+                    r = httpx.post(FASTAPI + "/admin/config",
+                                   json={"values": updates},
+                                   timeout=10, trust_env=False)
+                    if r.status_code == 200:
+                        st.success(f"✅ 已保存 {len(updates)} 项")
+                        st.rerun()
+                    else:
+                        st.error(f"保存失败: {r.status_code} {r.text}")
+                except Exception as e:
+                    st.error(f"请求失败: {e}")
 
-        with st.expander("查看完整 .env（脱敏）"):
-            masked = re.sub(r"(API_KEY|SECRET|TOKEN)=.+", r"\1=***", env_content)
-            st.code(masked, language="bash")
-    else:
-        st.error(".env 不存在")
+    with col_b:
+        if st.button("🔥 热重载引擎", use_container_width=True):
+            with st.spinner("重载中..."):
+                try:
+                    r = httpx.post(FASTAPI + "/admin/reload", timeout=30, trust_env=False)
+                    if r.status_code == 200:
+                        data = r.json()
+                        st.success("✅ " + " / ".join(data.get("components", [])))
+                    else:
+                        st.error(f"重载失败: {r.status_code}")
+                except Exception as e:
+                    st.error(f"请求失败: {e}")
 
-# ============================================================
-# Tab 5: 监控
-# ============================================================
+    with col_c:
+        if st.button("🔄 保存并重载", use_container_width=True, type="secondary"):
+            st.info("请先点【保存配置】，再点【热重载引擎】")
+
+    st.divider()
+
+    with st.expander("📄 当前 .env（脱敏）"):
+        try:
+            r = httpx.get(FASTAPI + "/admin/config", timeout=5, trust_env=False)
+            data = r.json().get("config", {})
+            for k, v in data.items():
+                st.text(f"{k} = {v}")
+        except Exception as e:
+            st.error(f"读取失败: {e}")
+
 with tab_monitor:
     st.subheader("📊 运行监控")
 

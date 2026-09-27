@@ -12,3 +12,7 @@ venv/
 frp/
 frpc.exe
 *.log
+
+# Day 备份
+_backup_*/
+
