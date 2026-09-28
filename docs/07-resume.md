@@ -1,34 +1,36 @@
-# 简历项目描述
+# 简历项目描述 v2
 
 ## 精简版（2 行）
 
 > **企业售后知识库智能问答与工单自动化 Agent 平台**
-> 基于 LangGraph + RAG + OpenClaw + Vue 3 的企业级售后 Agent。支持多渠道接入、混合召回检索、规则引擎、工单状态机、HITL 人工审批。检索召回率 **0.875**、上下文精确率 **0.667**。
+> 基于 LangGraph + RAG + OpenClaw + Vue 3 的企业级售后 Agent。支持多渠道接入、混合召回检索、规则引擎、工单状态机、HITL 人工审批、客户资产、退款风控、SLA 时效。检索召回率 **0.875**。
 
 ---
 
-## 详情版（8 条 bullet）
+## 详情版（10 条 bullet）
 
 - **项目**：售后知识库智能问答与工单自动化 Agent 平台（个人项目）
 - **技术栈**：LangGraph · LangChain · RAG · Ollama/Qwen3 · 通义千问 · Chroma · FastAPI · MySQL · Vue 3 · OpenClaw · Docker · frp
-- **RAG 检索**：父子块切片 + BM25/向量混合召回 + RRF 融合 + bge-m3 重排；自研 4 指标评估框架量化，context_recall **0.875**
+- **RAG 检索**：父子块切片 + BM25/向量混合召回 + RRF 融合 + bge-m3 重排；自研评估框架 4 指标量化，context_recall **0.875**
 - **Agent 编排**：LangGraph 状态机实现意图识别 → 上下文收集 → 规则匹配 → 动作执行 → HITL 审批，支持跨系统中断恢复
-- **规则引擎**：自研可复用框架（core / loaders / data 三层），19 个操作符可扩展，YAML 热加载
-- **工单系统**：MySQL 持久化 + 状态机（pending → assigned → accepted → resolved → closed）+ 拒单自动重派
-- **多渠道接入**：通过 OpenAI 兼容层把 LangGraph 伪装成 LLM Provider，接入 OpenClaw 实现飞书/企微统一入口
-- **管理后台**：独立开发 Vue 3 + Element Plus + ECharts 前端，8 个模块含配置热重载、数据看板、审计追踪
+- **业务扩展**：工单分 6 类（报修/退货/退款/赔付/投诉/咨询）；客户资产 + 订单档案 + 退款单 + 审批流 4 张新表
+- **风控与合规**：客户风险等级评估（高频退款/多次投诉/退款率）、退款单 AI 初审 + 人工审批、审计日志全覆盖
+- **SLA 时效**：按工单类型配置时效（投诉 1h 紧急 / 报修 24h 普通），后台每 5 分钟自动扫描 + 预警
+- **数据校验**：故障码白名单 + 编辑距离相似度匹配（E300 → 推荐 E200/E310），未知码允许建单但标记待核实
+- **多渠道**：通过 OpenAI 兼容层将 LangGraph 伪装成 LLM Provider，接入 OpenClaw 实现飞书消息 → 工单状态自动流转
+- **管理后台**：Vue 3 + Element Plus + ECharts，11 模块含配置热重载、SLA 看板、审计追踪、OpenClaw 网关监控
 
 ---
 
-## 技术栈关键词（ATS 优化）
+## 量化成果
 
-```
-核心框架：LangGraph · LangChain · FastAPI · Pydantic
-RAG：父子块切片 · BM25 · 向量检索 · RRF 融合 · Reranker · 混合召回
-模型层：Ollama · Qwen3 · bge-m3 · 通义千问 · DeepSeek
-数据层：Chroma · MySQL · SQLAlchemy · Redis
-Agent：HITL · 工具调用 · 状态机 · 中断恢复 · 规则引擎
-工程化：Docker · Vue 3 · Element Plus · 审计日志 · Provider 抽象
-接入：OpenClaw · OpenAI 兼容层 · frp 内网穿透 · 飞书
-评估：LLM-as-judge · Faithfulness · Context Precision/Recall
-```
+| 指标 | 值 |
+|---|---|
+| Context Recall | **0.875** |
+| Context Precision | **0.667** |
+| Answer Relevancy | **0.688** |
+| 后端模块 | 20+ |
+| API 端点 | 50+ |
+| MySQL 表 | 8 张 |
+| 前端页面 | 11 个 |
+| 代码量 | 后端 8000+ 行 / 前端 5000+ 行 |
