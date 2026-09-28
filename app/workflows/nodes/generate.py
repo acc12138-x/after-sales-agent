@@ -1,4 +1,4 @@
-"""生成节点：LLM 调用 + 5 层输出后处理。"""
+"""生成节点：LLM 调用 + 多层输出后处理。"""
 from __future__ import annotations
 import re
 from typing import Dict, List
@@ -8,48 +8,34 @@ from app.workflows.state import AgentState
 
 _LLM_CACHE = None
 
-
 # ============================================================
-# 层级 1：去 think 块
+# 常量
 # ============================================================
 THINK_BLOCK = re.compile(r"<think[^>]*>.*?</think[^>]*>", re.DOTALL | re.IGNORECASE)
 THINK_TAG = re.compile(r"</?think[^>]*>", re.IGNORECASE)
+PREFIX_RE = re.compile(r"^\s*\[[^\]]{1,80}\]\s*")
 
+TITLE_WORDS = [
+    "适用范围", "排查步骤", "故障现象", "解决方法", "注意事项",
+    "操作步骤", "问题描述", "原因分析", "处理建议", "参考来源",
+]
 
-def _strip_think(text: str) -> str:
-    return THINK_TAG.sub("", THINK_BLOCK.sub("", text))
+STOP_MARKERS = [
+    "根据知识片段", "根据上述分析", "根据以上分析", "根据提供的",
+    "用户问题：", "用户问题:", "用户提问：", "用户提问:",
+    "\n问题：", "\n问题:", "\n答案：", "\n答案:",
+    "参考来源：", "参考来源:",
+    "**用户问题", "**答案",
+    "\n备注：", "\n备注:", "\n注：", "\n注:",
+    "回答：", "回答:", "总结：", "总结:",
+]
 
+REPEAT_CIT = re.compile(r"(\[\d+\]\s*){2,}")
+LEADING_NO_INFO = re.compile(r"^\s*暂[无未][^。\n]*建议转人工[。\.]?\s*")
+BRACKET_ACTION = re.compile(r"\[(检查|重启|更换|确认|排查|处理)[^\]]{0,30}\]")
+NO_INFO_KEYWORDS = ["暂无相关依据", "无法回答", "知识片段中没", "没有相关"]
 
-# ============================================================
-# 层级 2：繁简转换（无外部依赖，硬编码常用字）
-# ============================================================
-_TRAD_TO_SIMPLE = {
-    "啟": "启", "動": "动", "後": "后", "體": "体", "溫": "温",
-    "傳": "传", "感": "感", "檢": "检", "查": "查", "線": "线",
-    "設": "设", "備": "备", "更": "更", "換": "换", "錯": "错",
-    "誤": "误", "報": "报", "警": "警", "題": "题", "問": "问",
-    "題": "题", "解": "解", "決": "决", "處": "处", "理": "理",
-    "確": "确", "認": "认", "試": "试", "開": "开", "關": "关",
-    "調": "调", "節": "节", "電": "电", "源": "源", "連": "连",
-    "接": "接", "軸": "轴", "壞": "坏", "養": "养", "護": "护",
-    "產": "产", "業": "业", "務": "务", "區": "区", "網": "网",
-    "號": "号", "碼": "码", "馬": "马", "驅": "驱", "動": "动",
-}
-
-_CJK_TRAD_RE = re.compile("[" + "".join(_TRAD_TO_SIMPLE.keys()) + "]")
-
-
-def _to_simplified(text: str) -> str:
-    if not text:
-        return text
-    return _CJK_TRAD_RE.sub(lambda m: _TRAD_TO_SIMPLE.get(m.group(), m.group()), text)
-
-
-# ============================================================
-# 层级 3：英文 → 中文（含复数 + 常用术语）
-# ============================================================
 TERM_MAP = {
-    # 设备/部件
     "temperature": "温度", "temp": "温度", "sensor": "传感器",
     "device": "设备", "equipment": "设备", "module": "模块",
     "board": "主板", "chip": "芯片", "motor": "电机",
@@ -59,34 +45,101 @@ TERM_MAP = {
     "button": "按钮", "display": "显示", "screen": "屏幕",
     "panel": "面板", "light": "指示灯", "valve": "阀门",
     "pump": "泵", "filter": "滤芯",
-    # 故障/状态
     "warning": "报警", "alert": "告警", "alarm": "报警",
     "error": "故障", "fault": "故障", "failure": "故障",
     "code": "代码", "issue": "问题", "problem": "问题",
     "abnormal": "异常", "normal": "正常", "broken": "损坏",
     "still": "仍然", "again": "再次",
-    # 操作
     "check": "检查", "inspect": "检查", "verify": "确认",
     "restart": "重启", "reboot": "重启", "reset": "复位",
     "replace": "更换", "change": "更换", "swap": "更换",
     "clean": "清洁", "adjust": "调整", "calibrate": "校准",
-    # 其他
     "step": "步骤", "solution": "解决方案", "cause": "原因",
 }
 
-# 注意：这里用 [ \t] 而不是 \s，避免吃掉换行
+TRAD_TO_SIMPLE = {
+    "啟": "启", "動": "动", "後": "后", "體": "体", "溫": "温",
+    "傳": "传", "檢": "检", "線": "线", "設": "设", "備": "备",
+    "換": "换", "錯": "错", "誤": "误", "報": "报", "題": "题",
+    "問": "问", "決": "决", "處": "处", "確": "确", "認": "认",
+    "試": "试", "開": "开", "關": "关", "調": "调", "節": "节",
+    "電": "电", "連": "连", "軸": "轴", "壞": "坏", "養": "养",
+    "護": "护", "產": "产", "業": "业", "務": "务", "區": "区",
+    "網": "网", "號": "号", "碼": "码", "馬": "马", "驅": "驱",
+    "統": "统", "計": "计", "點": "点", "無": "无",
+}
+
 _SPACE_IN_CJK = re.compile(r"(?<=[\u4e00-\u9fff])[ \t]+(?=[\u4e00-\u9fff])")
 _CJK_EN_BOUNDARY = re.compile(r"([\u4e00-\u9fff])\s+([A-Za-z])")
 _EN_CJK_BOUNDARY = re.compile(r"([A-Za-z])\s+([\u4e00-\u9fff])")
+_TRAD_RE = re.compile("[" + "".join(TRAD_TO_SIMPLE.keys()) + "]")
+
+
+# ============================================================
+# 层级 1：去 think
+# ============================================================
+def _strip_think(text: str) -> str:
+    return THINK_TAG.sub("", THINK_BLOCK.sub("", text))
+
+
+# ============================================================
+# 层级 2：去章节标题
+# ============================================================
+def _strip_headings(text: str) -> str:
+    if not text:
+        return text
+    # 去 [xxx] 或 [xxx > yyy]
+    for _ in range(3):
+        new = PREFIX_RE.sub("", text).strip()
+        if new == text:
+            break
+        text = new
+
+    out_lines = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if re.match(r"^\d+\.?$", stripped) or re.match(r"^\[\d+\]$", stripped):
+            continue
+        hit = False
+        for tw in TITLE_WORDS:
+            if tw in line:
+                gt_idx = line.rfind(">", 0, line.find(tw))
+                if gt_idx > -1:
+                    after = line[line.find(tw) + len(tw):].strip()
+                    if after:
+                        out_lines.append(after)
+                    hit = True
+                    break
+        if hit:
+            continue
+        out_lines.append(line)
+    return "\n".join(out_lines)
+
+
+# ============================================================
+# 层级 3：截断
+# ============================================================
+def _truncate_at_marker(text: str) -> str:
+    earliest = len(text)
+    for marker in STOP_MARKERS:
+        idx = text.find(marker)
+        if 0 < idx < earliest:
+            earliest = idx
+    return text[:earliest].rstrip()
+
+
+# ============================================================
+# 层级 4：繁简 + 英中
+# ============================================================
+def _to_simplified(text: str) -> str:
+    return _TRAD_RE.sub(lambda m: TRAD_TO_SIMPLE.get(m.group(), m.group()), text)
 
 
 def _normalize_text(text: str) -> str:
     if not text:
         return text
-    # 英文 -> 中文（支持复数 s/es）
     for en, zh in TERM_MAP.items():
-        text = re.sub(rf"\b{en}(s|es)?\b", zh, text, flags=re.IGNORECASE)
-    # 去中文之间的空格
+        text = re.sub(rf"(?<![A-Za-z]){en}(s|es)?(?![A-Za-z])", zh, text, flags=re.IGNORECASE)
     for _ in range(3):
         new = _SPACE_IN_CJK.sub("", text)
         if new == text:
@@ -99,33 +152,8 @@ def _normalize_text(text: str) -> str:
 
 
 # ============================================================
-# 层级 4：截断自问自答 + 压缩引用
+# 层级 5：引用去重 + 合并孤立引用 + 编号列表
 # ============================================================
-STOP_MARKERS = [
-    "根据知识片段", "根据上述分析", "根据以上分析", "根据提供的",
-    "用户问题：", "用户问题:", "用户提问：", "用户提问:",
-    "\n问题：", "\n问题:", "\n答案：", "\n答案:",
-    "参考来源：", "参考来源:", "参考:", "参考资料:",
-    "**用户问题", "**答案",
-    "\n备注：", "\n备注:", "\n注：", "\n注:",
-    "回答：", "回答:", "总结：", "总结:",
-]
-
-REPEAT_CIT = re.compile(r"(\[\d+\]\s*){2,}")
-LEADING_NO_INFO = re.compile(r"^\s*暂[无未][^。\n]*建议转人工[。\.]?\s*")
-BRACKET_ACTION = re.compile(r"\[(检查|重启|更换|确认|排查|处理)[^\]]{0,30}\]")
-NO_INFO_KEYWORDS = ["暂无相关依据", "无法回答", "知识片段中没", "没有相关"]
-
-
-def _truncate_at_marker(text: str) -> str:
-    earliest = len(text)
-    for marker in STOP_MARKERS:
-        idx = text.find(marker)
-        if 0 < idx < earliest:
-            earliest = idx
-    return text[:earliest].rstrip()
-
-
 def _dedup_citations(text: str) -> str:
     if not text:
         return text
@@ -144,37 +172,43 @@ def _dedup_citations(text: str) -> str:
     return text.strip()
 
 
-# ============================================================
-# 层级 5：强制编号列表
-# ============================================================
-def _format_as_numbered_list(text: str) -> str:
-    """把文本格式化为编号列表（生产级）。
-
-    策略：
-    1. 已编号 -> 归一化
-    2. 未编号 -> 按换行/分号/句号拆
-    3. 拆出来只有 1 条 -> 保持原样
-    """
-
-    # ============================================================
-    # 优先处理："1. xxx 2. xxx 3. xxx" 空格分隔的编号
-    # ============================================================
-    import re as _re
-    # 匹配文中多个编号（非开头的）
-    multi_num = _re.findall(r"(?:^|\s)([0-9]+)[.、)]\s+", text)
-    if len(multi_num) >= 2:
-        # 在除开头的每个编号前插入换行
-        text = _re.sub(r"(?<!^)(?<!\n)\s+([0-9]+)[.、)]\s+", r"\n\1. ", text)
-        text = text.strip()
-        return text
-
+def _merge_orphan_citations(text: str) -> str:
+    """把只有 [数字] 的独立行合并到上一行末尾。"""
     if not text:
         return text
+    lines = text.split("\n")
+    out = []
+    for line in lines:
+        stripped = line.strip()
+        m = re.match(r"^\s*(?:\d+\.\s*)?\[\s*(\d+)\s*\]\s*$", stripped)
+        if m:
+            cit = f"[{m.group(1)}]"
+            if out:
+                prev = out[-1].rstrip()
+                prev = re.sub(r"[。.]\s*$", "", prev)
+                out[-1] = f"{prev} {cit}。"
+            continue
+        out.append(line)
+    return "\n".join(out)
 
+
+def _format_as_numbered_list(text: str) -> str:
+    """把段落格式化为编号列表。"""
+    if not text:
+        return text
     text = text.strip()
 
-    # 已经是编号列表
-    if re.match(r"^\s*[0-9]+[\.、\)]\s", text):
+    # 0) 行内多编号拆行
+    if "\n" not in text:
+        matches = list(re.finditer(r"(?<![\d])(\d+)\.\s", text))
+        if len(matches) >= 2:
+            out = text
+            for m in reversed(matches[1:]):
+                out = out[:m.start()] + "\n" + out[m.start():]
+            text = out
+
+    # 1) 已是编号列表，规范化
+    if re.match(r"^[0-9]+[\.、\)]\s", text):
         lines = []
         for line in text.splitlines():
             line = line.rstrip()
@@ -182,14 +216,14 @@ def _format_as_numbered_list(text: str) -> str:
             lines.append(line)
         return "\n".join(lines)
 
-    # 先按换行拆
+    # 2) 按换行拆
     parts = [p.strip() for p in text.split("\n") if p.strip()]
 
-    # 只有 1 段，按分号拆
+    # 3) 分号拆
     if len(parts) <= 1:
         parts = [p.strip().rstrip("。.") for p in re.split(r"[；;]+", text) if p.strip()]
 
-    # 还是 1 段，按句号拆（保护 [1] 引用）
+    # 4) 句号拆
     if len(parts) <= 1:
         parts = []
         for p in re.split(r"。(?!\d)", text):
@@ -197,76 +231,45 @@ def _format_as_numbered_list(text: str) -> str:
             if p:
                 parts.append(p)
 
-    # 拆出来太少 -> 保留原样
     if len(parts) <= 1:
         return text
 
-    # 去掉每条的旧编号
     out = []
     for p in parts[:6]:
         p = re.sub(r"^\s*[0-9]+[\.、\)]\s*", "", p).strip()
         if p:
             out.append(p)
-
     if len(out) <= 1:
         return text
-
     return "\n".join(f"{i}. {p}" for i, p in enumerate(out, 1))
 
 
 # ============================================================
 # 主后处理链
 # ============================================================
-# 匹配 [xxx > yyy] 标题路径前缀
-HEADING_PATH_RE = re.compile(r"\[[^\]]{1,80}>[^\]]{1,80}\]\s*")
-
-
 def clean_answer(text: str) -> str:
     if not text:
         return text
 
-    # 0. 去标题路径（两种形式：带方括号 / 不带方括号）
-    # 形式1: [设备E102 > 排查步骤]
-    text = HEADING_PATH_RE.sub("", text)
-    # 形式2: 设备E102 > 排查步骤 （LLM 可能改写去方括号）
-    # 关键：只清理"独立成行"的标题路径，**不吃数字编号**
-    # 约束1: 行首不是数字
-    # 约束2: 行尾必须是换行或字符串结束
-    # 约束3: > 两侧都不含 数字编号/句号
-    text = re.sub(
-        r"^[^\n。！？\d<>]{1,50}\s*>\s*[^\n。！？\d<>]{1,50}\s*(?:\n|$)",
-        "",
-        text,
-        flags=re.MULTILINE,
-    )
-    # 1. 去 think
     text = _strip_think(text)
-    # 2. 截断自问自答
+    text = _strip_headings(text)
     text = _truncate_at_marker(text)
-    # 3. 去开头误加
     text = LEADING_NO_INFO.sub("", text)
-    # 4. 去方括号动作
     text = BRACKET_ACTION.sub("", text)
-    # 5. 压重复引用
     text = REPEAT_CIT.sub(" ", text)
-    # 6. 去行首引用前缀 [1].
     text = re.sub(r"^\[\d+\][.、:：\s]*", "", text)
-    # 7. 压空行
     text = re.sub(r"\n{2,}", "\n", text)
     text = "\n".join(line.strip() for line in text.splitlines())
     text = text.strip()
-    # 8. 去引用重复
     text = _dedup_citations(text)
-    # 9. 繁转简
+    text = _merge_orphan_citations(text)
     text = _to_simplified(text)
-    # 10. 英中混杂归一化
     text = _normalize_text(text)
-    # 11. 强制编号列表
     text = _format_as_numbered_list(text)
-    # 12. 长度截断
+    # 编号列表格式化后，可能又产生孤立引用（如 "1. xxx\n2. [1]"），再合并一次
+    text = _merge_orphan_citations(text)
     if len(text) > 500:
         text = text[:500].rstrip()
-
     return text
 
 
@@ -283,14 +286,6 @@ def _is_refusal(text: str) -> bool:
 
 
 def _is_ollama_base(base_url: str) -> bool:
-    """
-
-    # 保险：去掉引用后如果不足 2 个句子，不加编号
-    import re as _re
-    _clean = _re.sub(r"\[\d+\]", "", text).strip()
-    if len(_clean) < 20:
-        return text
-根据 base_url 判断是否走 Ollama 原生。"""
     if not base_url:
         return True
     return "11434" in base_url or "ollama" in base_url.lower()
@@ -308,24 +303,15 @@ def get_llm():
     if _is_ollama_base(base_url):
         from langchain_ollama import ChatOllama
         _LLM_CACHE = ChatOllama(
-            model=model,
-            base_url=base_url,
-            temperature=0.1,
-            num_predict=600,
-            num_ctx=2048,
-            repeat_penalty=1.4,
-            top_p=0.85,
-            top_k=30,
+            model=model, base_url=base_url,
+            temperature=0.1, num_predict=600, num_ctx=2048,
+            repeat_penalty=1.4, top_p=0.85, top_k=30,
         )
     else:
         from langchain_openai import ChatOpenAI
         _LLM_CACHE = ChatOpenAI(
-            model=model,
-            api_key=s.llm_api_key or "sk-dummy",
-            base_url=base_url,
-            temperature=0.1,
-            timeout=30,
-            max_tokens=400,
+            model=model, api_key=s.llm_api_key or "sk-dummy",
+            base_url=base_url, temperature=0.1, timeout=30, max_tokens=400,
         )
     return _LLM_CACHE
 
@@ -346,17 +332,18 @@ PROMPT = """你是企业售后助手。根据下面的知识片段，用简洁�
 【用户问题】
 {question}
 
-严格按以下格式回答，不要有多余文字：
+严格按以下格式回答：
 
-1. 第1步操作 [引用编号]
-2. 第2步操作 [引用编号]
-3. 第3步操作 [引用编号]
+1. 第1步操作
+2. 第2步操作
+3. 第3步操作
 
 规则：
-- 每步一行，用数字+英文句点开头（1. 2. 3.）
-- 每步末尾可标注引用一次，格式 [1]
-- **禁止在答案里输出 [xxx > yyy] 这类标题路径**
-- **禁止把知识片段原文整段粘贴，要用自己的话概括**
+- 每步一行，数字+英文句点开头（1. 2. 3.）
+- 禁止输出任何章节标题（如"设备E102 报警处理"、"适用范围"、"排查步骤"、"xxx > yyy"）
+- 直接说结论，不要先报章节名再给内容
+- 引用编号 [1] 必须紧贴在相关句子的句号前，例如："检查温度传感器接线 [1]。"
+- 引用编号绝对不能单独占一行，也不能单独作为一步
 - 全部用中文简体，禁止英文单词、禁止繁体字
 - 不要复述问题，不要思考过程，不要"总结/备注"
 - 总字数不超过 100 字
@@ -369,6 +356,18 @@ def format_context(chunks: List[Dict], max_chunks: int = 3) -> str:
     lines = []
     for i, c in enumerate(chunks[:max_chunks], 1):
         text = c.get("text", "").strip().replace("\n", " ")
+        for _ in range(3):
+            new = PREFIX_RE.sub("", text).strip()
+            if new == text:
+                break
+            text = new
+        for tw in TITLE_WORDS:
+            if tw in text and ">" in text:
+                idx = text.find(tw)
+                gt_idx = text.rfind(">", 0, idx)
+                if gt_idx > -1:
+                    text = text[idx + len(tw):].strip()
+                    break
         lines.append(f"[{i}] {text[:180]}")
     return "\n".join(lines)
 
@@ -376,7 +375,12 @@ def format_context(chunks: List[Dict], max_chunks: int = 3) -> str:
 def _fallback_from_chunks(chunks: List[Dict]) -> str:
     if not chunks:
         return "暂无相关依据，建议转人工。"
-    text = chunks[0]["text"].strip().replace("\n", " ")
+    text = chunks[0].get("text", "").strip().replace("\n", " ")
+    for _ in range(3):
+        new = PREFIX_RE.sub("", text).strip()
+        if new == text:
+            break
+        text = new
     return f"{text[:150].rstrip()} [1]"
 
 

@@ -1,9 +1,10 @@
-"""意图识别节点：咨询词优先 + 槽位合并 + 多轮上下文。"""
+"""意图识别节点：意图 + 槽位 + 多轮上下文（含动态重载）。"""
 from __future__ import annotations
 import re
+import time
 from typing import Dict, List, Optional
 
-from app.intent.factory import get_intent_engine
+from app.intent.factory import get_intent_engine, reload_intent_engine
 from app.workflows.state import AgentState
 
 # ---------- 槽位正则 ----------
@@ -15,6 +16,22 @@ DEVICE_MODEL_CN_RE = re.compile(r"型号[：: ]*([A-Za-z0-9\-]{2,20})")
 ADDRESS_RE = re.compile(r"(地址[：: ].+)")
 AMOUNT_RE = re.compile(r"(?:金额|退款|赔付|补偿)[：: ]*([0-9]+(?:\.[0-9]+)?)")
 AMOUNT_RE2 = re.compile(r"([0-9]+(?:\.[0-9]+)?)\s*(?:元|块)")
+
+# ---------- 意图引擎动态重载 ----------
+_engine_reload_ts = 0
+_engine_reload_interval = 60  # 每 60 秒检查一次
+
+
+def _maybe_reload_engine():
+    """每 60 秒重载一次，让 yaml 改动生效。"""
+    global _engine_reload_ts
+    now = time.time()
+    if now - _engine_reload_ts > _engine_reload_interval:
+        try:
+            reload_intent_engine("default")
+            _engine_reload_ts = now
+        except Exception:
+            pass
 
 
 def _extract_slots(text: str) -> Dict:
@@ -66,19 +83,15 @@ def _extract_slots(text: str) -> Dict:
     return slots
 
 
-# ============================================================
-# 咨询词（优先级最高）
-# ============================================================
+# ---------- 咨询判断 ----------
 CONSULT_PATTERNS = [
     r"是什么", r"为什么",
     r"怎么(办|了|样|回事|排查|处理|解决|操作|做)",
     r"如何(排查|处理|解决|操作|修|做)?",
-    # 新增：说明类
     r"适用范围", r"适用",
     r"包含(什么|哪些|哪些内容)?", r"包括(什么|哪些)?",
     r"介绍(一下|一下呗)?", r"说明(一下)?", r"讲讲",
     r"什么意思", r"含义",
-    # 疑问
     r"能不能", r"会不会", r"是不是", r"可不可以", r"有没有",
     r"第一[步个]",
     r"请教", r"求教", r"请问",
@@ -86,33 +99,46 @@ CONSULT_PATTERNS = [
     r"[？?]\s*$",
 ]
 
-# 明确动作词（优先级 > 咨询词）
 ACTION_WORDS = ["帮我", "给我", "我要", "申请", "创建", "建单", "登记", "报修", "预约"]
+
+BUSINESS_KEYWORDS = [
+    "订单", "物流", "快递", "工单", "退款", "退货", "换货",
+    "赔付", "补偿", "发票", "保修", "维修", "报修", "客户",
+    "手机号", "运单", "发货", "签收", "加急", "急单",
+    "工程师", "师傅", "有空", "空闲", "谁在", "负载", "工",
+]
 
 
 def _is_consult_query(text: str) -> bool:
-    """咨询问句：优先判断，走 RAG。"""
     if not text:
         return False
-
-    # 1. 明确动作词 -> 不算咨询
+    # 业务关键词优先
+    for w in BUSINESS_KEYWORDS:
+        if w in text:
+            return False
+    # 动作词
     for w in ACTION_WORDS:
         if w in text:
             return False
-
-    # 2. 咨询词 -> 咨询
+    # 手机号
+    if re.search(r"1[3-9]\d{9}", text):
+        return False
+    # 纯数字
+    if re.match(r"^[\s\+\-\d]{8,20}$", text):
+        return False
+    # 工程师名
+    if re.search(r"[赵张李王孙周吴郑陈刘杨黄胡]工", text):
+        return False
+    # 咨询模式
     for pat in CONSULT_PATTERNS:
         if re.search(pat, text):
             return True
-
     return False
 
 
-# ============================================================
-# 多轮上下文
-# ============================================================
+# ---------- 多轮上下文 ----------
 FOLLOWUP_KEYWORDS = {
-    "ticket": ["设备型号", "故障码", "故障代码", "型号", "设备"],
+    "ticket": ["设备型号", "故障码", "故障代码", "型号"],
     "refund_apply": ["订单号", "退款金额", "金额"],
     "order_query": ["订单号或下单手机号", "订单号"],
     "logistics": ["订单号或下单手机号"],
@@ -120,57 +146,43 @@ FOLLOWUP_KEYWORDS = {
 
 
 def _detect_followup_intent(messages: list) -> Optional[str]:
-    if not messages:
+    if not messages or len(messages) < 2:
         return None
+    # 找最后一条 assistant
+    last_assistant = None
     for m in reversed(messages):
-        if m.get("role") != "assistant":
-            continue
-        content = m.get("content", "")
-        if "请提供" in content or "请补充" in content:
-            for intent, keywords in FOLLOWUP_KEYWORDS.items():
-                if any(kw in content for kw in keywords):
-                    return intent
-        break
+        if m.get("role") == "assistant":
+            last_assistant = m.get("content", "")
+            break
+    if not last_assistant:
+        return None
+    if "请提供" not in last_assistant and "请补充" not in last_assistant:
+        return None
+    for intent, keywords in FOLLOWUP_KEYWORDS.items():
+        if any(kw in last_assistant for kw in keywords):
+            return intent
     return None
 
 
-def _is_pure_slot_input(text: str, slots: dict) -> bool:
-    """判断是不是"纯槽位输入"（用于多轮补槽位场景）。
-
-    条件：
-    - 短文本（<= 20 字）
-    - 有槽位
-    - 无业务关键词
-    - 意图引擎判断为 qa
-    """
+def _is_pure_slot_input(text: str, new_slots: dict) -> bool:
+    """纯槽位输入：短 + 有槽位 + 无业务词。"""
     t = text.strip()
-    if not t or len(t) > 20:
+    if not t or len(t) > 30:
         return False
-    if not slots:
+    if not new_slots:
         return False
-
-    engine = get_intent_engine()
-    top = engine.classify_top(t)
-    if top and top.id not in ("qa",):
-        return False
-
+    # 有业务词就不是纯槽位
+    for w in BUSINESS_KEYWORDS + ACTION_WORDS:
+        if w in t:
+            return False
     return True
 
 
-# ============================================================
-# 主节点
-# ============================================================
-# ============================================================
-# 候选确认检测（"您可能是想说 E200，1. E200 / 2. E310"）
-# ============================================================
+# ---------- 候选确认 ----------
 CODE_CAND_PAT = re.compile(r"(\d+)\.\s*\*\*([A-Z]+\d+)\*\*")
 
 
 def _detect_code_correction(messages: list):
-    """检测用户是否在回复候选确认。
-
-    返回 {1: "E200", 2: "E310"} 或 None
-    """
     if not messages or len(messages) < 2:
         return None
     last_assistant = None
@@ -187,40 +199,40 @@ def _detect_code_correction(messages: list):
 
 
 def _match_correction(text: str, mapping: dict):
-    """用户回复匹配候选：数字 / 码本身 / 是/对 都接受。"""
     t = text.strip().upper()
-    # 数字
     if t.isdigit() and int(t) in mapping:
         return mapping[int(t)]
-    # 直接输码
     for code in mapping.values():
         if code.upper() in t:
             return code
-    # "是" / "对" / "对，就是这个" → 取第一个
-    if t in ("是", "对", "yes", "y") or t.startswith(("对", "是")):
+    if t in ("是", "对", "YES", "Y") or t.startswith(("对", "是")):
         return list(mapping.values())[0]
     return None
 
 
+# ---------- 主节点 ----------
 def detect_intent(text: str) -> str:
+    _maybe_reload_engine()
     engine = get_intent_engine()
     top = engine.classify_top(text)
     return top.id if top else "qa"
 
 
 def intent_node(state: AgentState) -> AgentState:
+    _maybe_reload_engine()
+
     text = state.get("user_input", "")
     messages_history = state.get("messages", []) or []
     old_slots = state.get("slots", {}) or {}
 
-    # ============================================================
-    # 候选确认优先：如果上一条 assistant 是"您可能是想说..."
-    # ============================================================
+    # 诊断
+    print(f"[INTENT] text={text!r} msgs={len(messages_history)}")
+
+    # 1. 候选确认优先
     correction_map = _detect_code_correction(messages_history)
     if correction_map:
         corrected = _match_correction(text, correction_map)
         if corrected:
-            # 用户确认了候选 → 用修正后的码建单
             new_messages = messages_history + [{"role": "user", "content": text}]
             return {
                 **state,
@@ -230,39 +242,41 @@ def intent_node(state: AgentState) -> AgentState:
                 "flow_status": "running",
             }
 
-    new_slots = _extract_slots(text)
-
-    # ============================================================
-    # 优先级 1：咨询词 -> 强制 qa
-    # ============================================================
+    # 2. 咨询判断
     if _is_consult_query(text):
         new_messages = messages_history + [{"role": "user", "content": text}]
         return {
             **state,
             "intent": "qa",
-            "slots": {},   # 咨询不需要槽位（避免污染）
+            "slots": {},
             "messages": new_messages,
             "flow_status": "running",
         }
 
-    # ============================================================
-    # 优先级 2：判断是否多轮补槽位
-    # ============================================================
+    # 3. 提取槽位
+    new_slots = _extract_slots(text)
+
+    # 4. 多轮补槽位
     followup_intent = _detect_followup_intent(messages_history)
     is_pure_slot = _is_pure_slot_input(text, new_slots)
 
-    if is_pure_slot and followup_intent:
-        # 补槽位：合并旧槽位 + 新槽位
+    # 5. 意图引擎
+    engine = get_intent_engine()
+    top = engine.classify_top(text)
+    engine_intent = top.id if top else "qa"
+    engine_score = top.score if top else 0
+
+    print(f"[INTENT] engine={engine_intent} score={engine_score:.1f} followup={followup_intent} pure_slot={is_pure_slot}")
+
+    # 6. 决策
+    if followup_intent and is_pure_slot:
+        # 补槽位
         merged_slots = dict(old_slots)
         merged_slots.update(new_slots)
         intent_id = followup_intent
     else:
-        # 新对话：只用新槽位（清空旧）
         merged_slots = new_slots
-        # 意图引擎判断
-        engine = get_intent_engine()
-        top = engine.classify_top(text)
-        intent_id = top.id if top else "qa"
+        intent_id = engine_intent
 
     new_messages = messages_history + [{"role": "user", "content": text}]
 
