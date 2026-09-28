@@ -55,6 +55,40 @@
       </el-col>
     </el-row>
 
+    <el-row :gutter="16" style="margin-top:16px;">
+      <!-- SLA 达成 -->
+      <el-col :span="12">
+        <el-card shadow="never">
+          <template #header>
+            <span style="font-weight:600;">⏱️ SLA 时效分布</span>
+            <el-tag v-if="stats.sla_summary" type="info" size="small" style="margin-left:8px;">
+              达成率 {{ stats.sla_summary.achievement_rate || 0 }}%
+            </el-tag>
+          </template>
+          <div ref="slaChartEl" style="height: 260px;"></div>
+        </el-card>
+      </el-col>
+
+      <!-- 退款分布 -->
+      <el-col :span="12">
+        <el-card shadow="never">
+          <template #header>
+            <span style="font-weight:600;">💰 退款概览</span>
+            <el-tag type="warning" size="small" style="margin-left:8px;">
+              待审批 {{ stats.refund_pending || 0 }}
+            </el-tag>
+          </template>
+          <el-row :gutter="12" style="margin-bottom:12px;">
+            <el-col :span="8"><el-statistic title="退款单" :value="stats.refund_total || 0" /></el-col>
+            <el-col :span="8"><el-statistic title="总金额" :value="stats.refund_amount || 0" prefix="¥" :precision="2" /></el-col>
+            <el-col :span="8"><el-statistic title="待审批" :value="stats.refund_pending || 0" /></el-col>
+          </el-row>
+          <div ref="refundChartEl" style="height: 180px;"></div>
+        </el-card>
+      </el-col>
+    </el-row>
+
+    <!-- 服务探活 -->
     <!-- ============ 服务探活 ============ -->
     <el-card shadow="never" style="margin-top:16px;">
       <template #header><span style="font-weight:600;">🔌 外部服务状态</span></template>
@@ -103,7 +137,9 @@ const services = ref([
 const trendChartEl = ref(null);
 const statusChartEl = ref(null);
 const engineerChartEl = ref(null);
-let trendChart, statusChart, engineerChart;
+const slaChartEl = ref(null);
+const refundChartEl = ref(null);
+let trendChart, statusChart, engineerChart, slaChart, refundChart;
 
 // ============ 计算属性 ============
 const todayCount = computed(() => {
@@ -134,6 +170,8 @@ function initCharts() {
   if (trendChartEl.value) trendChart = echarts.init(trendChartEl.value);
   if (statusChartEl.value) statusChart = echarts.init(statusChartEl.value);
   if (engineerChartEl.value) engineerChart = echarts.init(engineerChartEl.value);
+  if (slaChartEl.value) slaChart = echarts.init(slaChartEl.value);
+  if (refundChartEl.value) refundChart = echarts.init(refundChartEl.value);
 }
 
 function renderTrend() {
@@ -225,10 +263,67 @@ function renderEngineer() {
   });
 }
 
+function renderSLA() {
+  if (!slaChart) return;
+  const s = stats.value.sla_summary || {};
+  const data = [
+    { name: "🟢 正常", value: s.normal || 0, itemStyle: { color: "#22c55e" } },
+    { name: "🟠 预警", value: s.warning || 0, itemStyle: { color: "#f59e0b" } },
+    { name: "🔴 超时", value: s.overdue || 0, itemStyle: { color: "#ef4444" } },
+  ].filter((d) => d.value > 0);
+  slaChart.setOption({
+    tooltip: { trigger: "item" },
+    legend: { bottom: 0, textStyle: { color: "#6b7280" } },
+    series: [{
+      type: "pie",
+      radius: ["40%", "68%"],
+      itemStyle: { borderRadius: 6, borderColor: "#fff", borderWidth: 2 },
+      label: { color: "#374151", fontSize: 12 },
+      data: data.length ? data : [{ name: "暂无数据", value: 1, itemStyle: { color: "#e5e7eb" } }],
+    }],
+  });
+}
+
+function renderRefund() {
+  if (!refundChart) return;
+  const total = stats.value.refund_total || 0;
+  const pending = stats.value.refund_pending || 0;
+  const executed = total - pending;
+  refundChart.setOption({
+    grid: { left: 60, right: 30, top: 20, bottom: 30 },
+    tooltip: { trigger: "axis", axisPointer: { type: "shadow" } },
+    xAxis: {
+      type: "value",
+      splitLine: { lineStyle: { color: "#f3f4f6" } },
+      axisLabel: { color: "#6b7280" },
+    },
+    yAxis: {
+      type: "category",
+      data: ["已执行", "待审批"],
+      axisLine: { lineStyle: { color: "#e5e7eb" } },
+      axisLabel: { color: "#374151", fontSize: 13 },
+    },
+    series: [{
+      data: [executed, pending],
+      type: "bar",
+      barWidth: 24,
+      itemStyle: {
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          { offset: 0, color: "#c7d2fe" },
+          { offset: 1, color: "#4f46e5" },
+        ]),
+        borderRadius: [0, 6, 6, 0],
+      },
+    }],
+  });
+}
+
 function handleResize() {
   trendChart?.resize();
   statusChart?.resize();
   engineerChart?.resize();
+  slaChart?.resize();
+  refundChart?.resize();
 }
 
 // ============ 服务探活 ============
@@ -257,6 +352,8 @@ async function load() {
     renderTrend();
     renderStatus();
     renderEngineer();
+    renderSLA();
+    renderRefund();
   } finally {
     loading.value = false;
   }
@@ -274,6 +371,8 @@ onUnmounted(() => {
   trendChart?.dispose();
   statusChart?.dispose();
   engineerChart?.dispose();
+  slaChart?.dispose();
+  refundChart?.dispose();
 });
 </script>
 

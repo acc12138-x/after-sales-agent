@@ -18,17 +18,6 @@
       </div>
     </div>
 
-    <!-- ============ 快捷示例 ============ -->
-    <div class="card-panel examples">
-      <span class="examples-label">💡 快捷示例：</span>
-      <el-button
-        v-for="(ex, i) in examples"
-        :key="i"
-        size="small"
-        @click="quickSend(ex)"
-      >{{ ex }}</el-button>
-    </div>
-
     <!-- ============ 消息列表 ============ -->
     <div ref="msgList" class="message-list">
       <el-empty v-if="!messages.length" description="暂无消息，发送第一条吧 👇" />
@@ -115,14 +104,7 @@ const loading = ref(false);
 const backendOk = ref(false);
 const msgList = ref(null);
 
-const examples = [
-  "E102 报警怎么排查",
-  "帮我报修 XY200 设备，故障码 E102",
-  "我的 XY200 设备坏了",
-  "订单到哪了 O20260201002",
-  "我要退货",
-  "转人工",
-];
+
 
 async function checkBackend() {
   try {
@@ -143,10 +125,7 @@ function clearHistory() {
   messages.value = [];
 }
 
-function quickSend(text) {
-  input.value = text;
-  send();
-}
+
 
 function fmtConf(v) {
   if (v === null || v === undefined) return "-";
@@ -238,11 +217,8 @@ onMounted(checkBackend);
 .toolbar-left { display: flex; gap: 10px; align-items: center; }
 .toolbar-right { display: flex; gap: 8px; }
 
-.examples {
-  padding: 12px 20px;
-  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
-}
-.examples-label { color: #6b7280; font-size: 13px; }
+
+
 
 .message-list {
   flex: 1;

@@ -57,7 +57,7 @@
         v-loading="loading"
         stripe
         empty-text="暂无审计记录"
-        max-height="calc(100vh - 400px)"
+        max-height="calc(100vh - 340px)"
       >
         <el-table-column label="时间" width="180">
           <template #default="{ row }">
@@ -98,7 +98,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="详情" min-width="300">
+        <el-table-column label="详情" min-width="450">
           <template #default="{ row }">
             <div class="detail-cell" @click="showDetail(row)">
               <span class="detail-text">{{ row.detail }}</span>

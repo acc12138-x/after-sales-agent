@@ -1,14 +1,14 @@
 """Ticket 模型（状态机 + 字段完整度）。"""
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from sqlalchemy import Boolean, Column, DateTime, Integer, String, Text
 from app.db.base import Base
 
 
 STATUS_FLOW = {
     "pending":     ["assigned", "cancelled"],
     "assigned":    ["accepted", "rejected", "cancelled"],
-    "accepted":    ["in_progress", "rejected"],
+    "accepted":    ["in_progress", "resolved", "rejected"],   # 允许直接完成
     "in_progress": ["resolved", "rejected"],
     "resolved":    ["closed", "in_progress"],
     "closed":      [],
@@ -32,8 +32,23 @@ class Ticket(Base):
     contact = Column(String(256))
     address = Column(String(512))
 
-    # 完整度标记：逗号分隔的缺失字段名，空字符串 = 完整
+    # 完整度标记
     missing_fields = Column(String(256), default="")
+
+    # ============ 售后业务扩展 ============
+    # 工单类型：repair / return / exchange / refund / complaint / inquiry
+    ticket_type = Column(String(32), default="repair", index=True)
+    # 关联订单号（用于查询客户资产）
+    related_order_id = Column(String(64), nullable=True)
+    # 关联退款单号
+    related_refund_id = Column(String(64), nullable=True)
+    # SLA 截止时间 + 状态
+    sla_deadline = Column(DateTime, nullable=True)
+    sla_status = Column(String(16), default="normal")  # normal / warning / overdue
+    # 风控标记
+    risk_flag = Column(String(16), default="")  # "" / suspicious / high_risk
+    # 故障码是否已核实（False = 待人工核实）
+    code_verified = Column(Boolean, default=True)
 
     # 状态机相关
     reject_reason = Column(String(256))
@@ -73,6 +88,13 @@ class Ticket(Base):
             "description": self.description,
             "contact": self.contact,
             "address": self.address,
+            "ticket_type": self.ticket_type or "repair",
+            "related_order_id": self.related_order_id,
+            "related_refund_id": self.related_refund_id,
+            "sla_deadline": _iso(self.sla_deadline),
+            "sla_status": self.sla_status or "normal",
+            "risk_flag": self.risk_flag or "",
+            "code_verified": self.code_verified if self.code_verified is not None else True,
             "is_complete": self.is_complete,
             "missing_fields": self.missing_list,
             "reject_reason": self.reject_reason,

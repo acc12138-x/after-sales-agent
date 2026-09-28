@@ -94,3 +94,32 @@ async def toggle_status(engineer_id: int):
         e.status = "offline" if e.status == "online" else "online"
         s.flush()
         return {"id": e.id, "status": e.status}
+
+@router.post("/rebuild-load")
+async def rebuild_load():
+    """从 tickets 表重建每个工程师的当前负载。
+
+    逻辑：统计每个工程师名下的活跃工单数（assigned / accepted / in_progress）。
+    """
+    from sqlalchemy import func
+    from app.db.models.ticket import Ticket
+
+    with session_scope() as s:
+        # 统计活跃工单
+        rows = s.execute(
+            select(Ticket.assigned_to, func.count(Ticket.ticket_id))
+            .where(Ticket.status.in_(["assigned", "accepted", "in_progress"]))
+            .group_by(Ticket.assigned_to)
+        ).all()
+        active_counts = {r[0]: r[1] for r in rows if r[0]}
+
+        # 更新所有工程师
+        engineers = s.execute(select(Engineer)).scalars().all()
+        updated = []
+        for e in engineers:
+            new_load = active_counts.get(e.name, 0)
+            old = e.current_load
+            e.current_load = new_load
+            updated.append({"name": e.name, "old": old, "new": new_load})
+
+        return {"updated": updated, "active_tickets": sum(active_counts.values())}

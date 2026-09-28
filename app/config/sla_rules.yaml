@@ -1,0 +1,34 @@
+# SLA 时效规则（小时）
+# 工单类型: {urgent: 小时, normal: 小时}
+sla_rules:
+  repair:
+    urgent: 2
+    normal: 24
+    label: 报修
+  return:
+    urgent: 4
+    normal: 48
+    label: 退货
+  exchange:
+    urgent: 4
+    normal: 48
+    label: 换货
+  refund:
+    urgent: 2
+    normal: 24
+    label: 退款
+  complaint:
+    urgent: 1
+    normal: 8
+    label: 投诉
+  inquiry:
+    urgent: 4
+    normal: 24
+    label: 咨询
+  default:
+    urgent: 4
+    normal: 24
+    label: 其他
+
+# 预警阈值：剩余时间少于 X% 时标记 warning
+warning_ratio: 0.3

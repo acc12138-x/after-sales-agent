@@ -27,6 +27,7 @@ class TicketCreateRequest(BaseModel):
     description: str = ""
     contact: str = ""
     address: str = ""
+    ticket_type: str = "repair"  # repair / return / exchange / refund / complaint / inquiry
 
 
 class TicketResponse(BaseModel):
@@ -88,3 +89,58 @@ class TicketUpdateRequest(BaseModel):
     description: Optional[str] = None
     contact: Optional[str] = None
     address: Optional[str] = None
+
+
+# ============ 客户 ============
+class CustomerCreate(BaseModel):
+    name: str
+    phone: str
+    email: str = ""
+    address: str = ""
+    vip_level: str = "normal"
+
+
+class CustomerResponse(BaseModel):
+    customer_id: str
+    name: str
+    phone: str
+    vip_level: str
+    risk_level: str
+    risk_score: int
+    total_orders: int
+    total_refunds: int
+    total_complaints: int
+    total_tickets: int
+    created_at: Optional[str] = None
+
+
+# ============ 退款 ============
+class RefundCreateRequest(BaseModel):
+    ticket_id: str = ""
+    customer_id: str
+    order_id: str
+    refund_type: str = "refund_only"
+    amount: float
+    reason: str = ""
+
+
+class RefundApprovalRequest(BaseModel):
+    decision: str  # approve / reject
+    note: str = ""
+
+
+class RefundResponse(BaseModel):
+    refund_id: str
+    ticket_id: str
+    customer_id: str
+    order_id: str
+    refund_type: str
+    amount: float
+    status: str
+    ai_suggestion: str
+    ai_confidence: float
+    ai_reason: str
+    risk_flag: str
+    approver: Optional[str] = None
+    approval_note: Optional[str] = None
+    created_at: Optional[str] = None

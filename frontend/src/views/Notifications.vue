@@ -70,7 +70,7 @@
         v-loading="loading"
         stripe
         empty-text="暂无通知记录"
-        max-height="calc(100vh - 480px)"
+        max-height="calc(100vh - 420px)"
       >
         <el-table-column label="时间" width="180">
           <template #default="{ row }">
@@ -103,7 +103,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="标题 / 内容" min-width="300">
+        <el-table-column label="标题 / 内容" min-width="450">
           <template #default="{ row }">
             <div class="title-cell">
               <div class="title-line">{{ row.title || "-" }}</div>

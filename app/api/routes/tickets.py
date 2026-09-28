@@ -15,6 +15,7 @@ from app.db.models.engineer import Engineer
 from app.db.models.ticket import Ticket
 from app.db.session import session_scope
 from app.notify.notifier import send as notify
+from app.services.sla_service import compute_deadline
 
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
@@ -62,6 +63,8 @@ def do_create_ticket(
     description: str = "",
     contact: str = "",
     address: str = "",
+    urgent: bool = False,
+    code_verified: bool = True,
 ) -> dict:
     """创建工单。
 
@@ -87,6 +90,16 @@ def do_create_ticket(
         if engineer is None:
             raise HTTPException(status_code=503, detail="当前无可用工程师")
 
+        created = datetime.utcnow()
+        # 从意图推断 ticket_type（如有）
+        ttype = "repair"
+        if description:
+            dl = description.lower()
+            if "退款" in dl: ttype = "refund"
+            elif "退货" in dl: ttype = "return"
+            elif "换货" in dl: ttype = "exchange"
+            elif "投诉" in dl: ttype = "complaint"
+
         t = Ticket(
             ticket_id=tid,
             status="assigned",
@@ -98,9 +111,13 @@ def do_create_ticket(
             contact=contact,
             address=address,
             missing_fields=missing,
-            created_at=datetime.utcnow(),
-            assigned_at=datetime.utcnow(),
+            ticket_type=ttype,
+            created_at=created,
+            assigned_at=created,
             assign_count=1,
+            sla_deadline=compute_deadline(ttype, urgent=urgent, created_at=created),
+            sla_status="normal",
+            code_verified=code_verified,
         )
         s.add(t)
         engineer.current_load = (engineer.current_load or 0) + 1

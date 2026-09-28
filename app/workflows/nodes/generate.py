@@ -225,8 +225,20 @@ def clean_answer(text: str) -> str:
     if not text:
         return text
 
-    # 0. 去标题路径前缀（检索时加的，不该出现在答案里）
+    # 0. 去标题路径（两种形式：带方括号 / 不带方括号）
+    # 形式1: [设备E102 > 排查步骤]
     text = HEADING_PATH_RE.sub("", text)
+    # 形式2: 设备E102 > 排查步骤 （LLM 可能改写去方括号）
+    # 关键：只清理"独立成行"的标题路径，**不吃数字编号**
+    # 约束1: 行首不是数字
+    # 约束2: 行尾必须是换行或字符串结束
+    # 约束3: > 两侧都不含 数字编号/句号
+    text = re.sub(
+        r"^[^\n。！？\d<>]{1,50}\s*>\s*[^\n。！？\d<>]{1,50}\s*(?:\n|$)",
+        "",
+        text,
+        flags=re.MULTILINE,
+    )
     # 1. 去 think
     text = _strip_think(text)
     # 2. 截断自问自答

@@ -23,6 +23,8 @@ EDITABLE_KEYS = {
     "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "DEEPSEEK_MODEL",
     "DASHSCOPE_API_KEY", "DASHSCOPE_BASE_URL", "DASHSCOPE_EMBEDDING_MODEL",
     "CHUNK_SIZE", "CHUNK_OVERLAP", "MIN_RELEVANCE_SCORE",
+    "OPENCLAW_ENABLED", "OPENCLAW_GATEWAY_URL", "OPENCLAW_API_KEY",
+    "OPENCLAW_FEISHU_APP_ID", "OPENCLAW_FEISHU_APP_SECRET",
     "TOP_K_RETRIEVE", "TOP_K_RERANK",
 }
 
@@ -273,4 +275,53 @@ async def dashboard_stats():
     except Exception:
         result["knowledge_chunks"] = 0
 
+    # 7. SLA 汇总
+    try:
+        from app.services.sla_service import get_sla_summary
+        result["sla_summary"] = get_sla_summary()
+    except Exception:
+        result["sla_summary"] = {}
+
+    # 8. 退款统计
+    try:
+        from app.db.models.refund import RefundRequest
+        with session_scope() as s:
+            total_refunds = s.execute(select(func.count(RefundRequest.refund_id))).scalar() or 0
+            total_amount = s.execute(select(func.sum(RefundRequest.amount))).scalar() or 0
+            pending = s.execute(
+                select(func.count(RefundRequest.refund_id))
+                .where(RefundRequest.status == "pending_approval")
+            ).scalar() or 0
+        result["refund_total"] = total_refunds
+        result["refund_amount"] = float(total_amount)
+        result["refund_pending"] = pending
+    except Exception:
+        result["refund_total"] = 0
+        result["refund_amount"] = 0
+        result["refund_pending"] = 0
+
+    return result
+
+@router.get("/openclaw/status")
+async def openclaw_status():
+    """探测 OpenClaw 网关是否可达。"""
+    from app.config.settings import get_settings
+    s = get_settings()
+    result = {
+        "enabled": s.openclaw_enabled,
+        "gateway_url": s.openclaw_gateway_url,
+        "feishu_app_id": s.openclaw_feishu_app_id or "(未配置)",
+    }
+    if not s.openclaw_enabled:
+        result["reachable"] = False
+        result["message"] = "OpenClaw 已禁用"
+        return result
+    try:
+        import httpx
+        r = httpx.get(s.openclaw_gateway_url + "/v1/models", timeout=5, trust_env=False)
+        result["reachable"] = r.status_code == 200
+        result["message"] = f"HTTP {r.status_code}"
+    except Exception as e:
+        result["reachable"] = False
+        result["message"] = str(e)[:100]
     return result

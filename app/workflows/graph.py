@@ -13,13 +13,15 @@ from app.workflows.nodes.generate import generate_node
 from app.workflows.nodes.hitl_gate import hitl_gate_node
 from app.workflows.nodes.ticket_node import ticket_node
 from app.workflows.nodes.order_node import order_node
+from app.workflows.nodes.engineer_query import engineer_query_node
 from app.workflows.nodes.action_exec import action_exec_node
+from app.workflows.nodes.refund_apply import refund_apply_node
 
 
 # 走规则引擎的意图（需要匹配售后规则）
 RULE_INTENTS = {"return", "exchange", "refund", "warranty"}
 # 查询类意图
-QUERY_INTENTS = {"order_query", "logistics"}
+QUERY_INTENTS = {"order_query", "logistics", "customer_query"}
 
 
 def route_after_intent(state: AgentState) -> str:
@@ -35,12 +37,15 @@ def route_after_slot(state: AgentState) -> str:
     intent = state.get("intent", "qa")
     if intent in RULE_INTENTS:
         return "context_collect"
+    if intent == "engineer_query":
+        return "engineer_query"
     if intent in QUERY_INTENTS:
         return "context_collect"
     if intent == "ticket":
         return "ticket_node"
+    if intent in ("refund_apply", "compensation"):
+        return "refund_apply"
     if intent == "repair":
-        # 维修/故障：如果没设备信息就追问，有就走 RAG
         return "rag_search"
     return "rag_search"
 
@@ -72,7 +77,9 @@ def build_graph():
     g.add_node("hitl_gate", hitl_gate_node)
     g.add_node("ticket_node", ticket_node)
     g.add_node("order_node", order_node)
+    g.add_node("engineer_query", engineer_query_node)
     g.add_node("action_exec", action_exec_node)
+    g.add_node("refund_apply", refund_apply_node)
 
     g.set_entry_point("intent")
 
@@ -88,6 +95,8 @@ def build_graph():
         {
             "context_collect": "context_collect",
             "ticket_node": "ticket_node",
+            "refund_apply": "refund_apply",
+            "engineer_query": "engineer_query",
             "rag_search": "rag_search",
             "end": END,
         },
@@ -110,7 +119,9 @@ def build_graph():
 
     g.add_edge("action_exec", "hitl_gate")
     g.add_edge("ticket_node", END)
+    g.add_edge("refund_apply", END)
     g.add_edge("order_node", END)
+    g.add_edge("engineer_query", END)
     g.add_edge("hitl_gate", END)
 
     return g

@@ -87,6 +87,15 @@ class Settings(BaseSettings):
     mysql_password: str = "agent_password"
     mysql_database: str = "after_sales_agent"
 
+    # ============================================================
+    # OpenClaw 网关
+    # ============================================================
+    openclaw_enabled: bool = True
+    openclaw_gateway_url: str = "http://127.0.0.1:18000"
+    openclaw_api_key: str = "local-rag-key"
+    openclaw_feishu_app_id: str = ""
+    openclaw_feishu_app_secret: str = ""
+
     # 兼容旧字段
     llm_router_mode: str = "hybrid"
 

@@ -13,6 +13,9 @@
         <el-menu-item index="/chat"><el-icon><ChatDotRound /></el-icon>对话测试</el-menu-item>
         <el-menu-item index="/knowledge"><el-icon><Collection /></el-icon>知识库</el-menu-item>
         <el-menu-item index="/tickets"><el-icon><Tickets /></el-icon>工单</el-menu-item>
+        <el-menu-item index="/customers"><el-icon><UserFilled /></el-icon>客户资产</el-menu-item>
+        <el-menu-item index="/refunds"><el-icon><Money /></el-icon>退款管理</el-menu-item>
+        <el-menu-item index="/sla"><el-icon><AlarmClock /></el-icon>SLA时效</el-menu-item>
         <el-menu-item index="/engineers"><el-icon><User /></el-icon>工程师</el-menu-item>
         <el-menu-item index="/audit"><el-icon><Document /></el-icon>审计日志</el-menu-item>
         <el-menu-item index="/notifications"><el-icon><Bell /></el-icon>通知记录</el-menu-item>
@@ -64,7 +67,7 @@ onMounted(async () => {
 }
 .logo-title { font-weight: 700; font-size: 16px; }
 .logo-sub { font-size: 11px; color: #6b7280; }
-.menu { border: none; background: transparent; flex: 1; }
+.menu { border: none; background: transparent; flex: 1; overflow-y: auto; }
 .menu .el-menu-item {
   margin: 4px 10px; border-radius: 8px;
 }

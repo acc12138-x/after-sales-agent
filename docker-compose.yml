@@ -1,7 +1,4 @@
-# ============================================================
-# Enterprise After-Sales Agent Platform
-# Docker Compose 完整编排
-# ============================================================
+version: "3.8"
 
 services:
   # ---------- MySQL ----------
@@ -47,7 +44,7 @@ services:
       timeout: 3s
       retries: 5
 
-  # ---------- Chroma 向量库 ----------
+  # ---------- Chroma ----------
   chroma:
     image: chromadb/chroma:latest
     container_name: easkb-chroma
@@ -62,7 +59,7 @@ services:
     networks:
       - easkb-net
 
-  # ---------- FastAPI 主服务（负责构建镜像） ----------
+  # ---------- FastAPI 主服务 ----------
   app:
     build: .
     image: easkb-app:latest
@@ -82,29 +79,8 @@ services:
       - ./logs:/app/logs
     networks:
       - easkb-net
-
-  # ---------- Streamlit 管理后台（复用 app 镜像，不再 build） ----------
-  streamlit:
-    image: easkb-app:latest
-    container_name: easkb-streamlit
-    restart: unless-stopped
-    ports:
-      - "8501:8501"
-    env_file:
-      - .env.production
-    depends_on:
-      - app
-    command: >
-      streamlit run app/admin/dashboard.py
-      --server.port 8501
-      --server.address 0.0.0.0
-      --server.headless true
-      --browser.gatherUsageStats false
-    volumes:
-      - ./data:/app/data
-      - ./logs:/app/logs
-    networks:
-      - easkb-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   mysql-data:
