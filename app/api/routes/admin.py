@@ -17,13 +17,16 @@ ENV_PATH = Path(__file__).parents[3] / ".env"
 EDITABLE_KEYS = {
     "LLM_PROVIDER", "EMBEDDING_PROVIDER",
     "OLLAMA_BASE_URL", "OLLAMA_LLM_MODEL", "OLLAMA_EMBEDDING_MODEL",
+    "LLM_BASE_URL", "LLM_MODEL", "LLM_API_KEY",
+    "EMBEDDING_BASE_URL", "EMBEDDING_MODEL", "EMBEDDING_API_KEY",
+    "CHROMA_MODE", "CHROMA_HOST", "CHROMA_PORT",
     "DEEPSEEK_API_KEY", "DEEPSEEK_BASE_URL", "DEEPSEEK_MODEL",
     "DASHSCOPE_API_KEY", "DASHSCOPE_BASE_URL", "DASHSCOPE_EMBEDDING_MODEL",
-    "CHUNK_SIZE", "CHUNK_OVERLAP",
+    "CHUNK_SIZE", "CHUNK_OVERLAP", "MIN_RELEVANCE_SCORE",
     "TOP_K_RETRIEVE", "TOP_K_RERANK",
 }
 
-SECRET_KEYS = {"DEEPSEEK_API_KEY", "DASHSCOPE_API_KEY"}
+SECRET_KEYS = {"DEEPSEEK_API_KEY", "DASHSCOPE_API_KEY", "LLM_API_KEY", "EMBEDDING_API_KEY"}
 
 
 class ConfigUpdate(BaseModel):
@@ -130,9 +133,8 @@ async def reload_all():
 
     # LLM 缓存
     try:
-        from app.workflows.nodes import generate
-        generate._LLM_LOCAL = None
-        generate._LLM_CLOUD = None
+        from app.workflows.nodes.generate import reset_llm_cache
+        reset_llm_cache()
         reloaded.append("llm")
     except Exception as e:
         reloaded.append(f"llm_err: {e}")
@@ -172,27 +174,103 @@ async def reload_all():
     return {"status": "reloaded", "components": reloaded}
 
 
+@router.get("/provider-templates")
+async def provider_templates():
+    """从 YAML 加载 provider 模板。"""
+    import yaml
+    from pathlib import Path
+    template_path = Path(__file__).parents[2] / "config" / "provider_templates.yaml"
+    if not template_path.exists():
+        return {"llm_providers": {}, "embedding_providers": {}}
+    with open(template_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    return data
+
+
 @router.get("/providers")
 async def list_providers():
-    """返回可选的 provider 与推荐模型列表。"""
-    return {
-        "llm_providers": [
-            {"value": "ollama", "label": "本地 Ollama"},
-            {"value": "deepseek", "label": "云端 DeepSeek"},
-        ],
-        "embedding_providers": [
-            {"value": "ollama", "label": "本地 bge-m3（1024维）"},
-            {"value": "dashscope", "label": "云端 DashScope（1024维）"},
-        ],
-        "ollama_models_available": [
-            "qwen2.5-1.5b:latest",
-            "modelscope.cn/Qwen/Qwen3-4B-GGUF:latest",
-            "qwen-tsx:latest",
-        ],
-        "ollama_embedding_available": [
-            "bge-m3:latest",
-            "nomic-embed-text:latest",
-        ],
-        "deepseek_models": ["deepseek-chat", "deepseek-reasoner"],
-        "dashscope_models": ["text-embedding-v3", "text-embedding-v2"],
-    }
+    """兼容旧接口。"""
+    return await provider_templates()
+
+
+# ============================================================
+# Dashboard 聚合数据
+# ============================================================
+@router.get("/dashboard/stats")
+async def dashboard_stats():
+    """运营仪表盘聚合数据。"""
+    from datetime import datetime, timedelta
+    from sqlalchemy import func, select
+    from app.db.models.ticket import Ticket
+    from app.db.models.engineer import Engineer
+    from app.db.models.audit_log import AuditLog
+    from app.db.models.notification import Notification
+    from app.db.session import session_scope
+
+    result = {}
+
+    with session_scope() as s:
+        # 1. 工单总览
+        total = s.execute(select(func.count(Ticket.ticket_id))).scalar() or 0
+
+        status_rows = s.execute(
+            select(Ticket.status, func.count(Ticket.ticket_id)).group_by(Ticket.status)
+        ).all()
+        status_dist = {r[0]: r[1] for r in status_rows}
+
+        # 2. 近 7 天新增
+        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        days = []
+        for i in range(6, -1, -1):
+            d_start = today - timedelta(days=i)
+            d_end = d_start + timedelta(days=1)
+            cnt = s.execute(
+                select(func.count(Ticket.ticket_id))
+                .where(Ticket.created_at >= d_start)
+                .where(Ticket.created_at < d_end)
+            ).scalar() or 0
+            days.append({"date": d_start.strftime("%m-%d"), "count": cnt})
+
+        # 3. 工程师负载
+        eng_rows = s.execute(
+            select(Engineer.name, Engineer.current_load, Engineer.max_load, Engineer.status)
+        ).all()
+        engineers = [
+            {"name": r[0], "load": r[1], "max": r[2], "status": r[3]}
+            for r in eng_rows
+        ]
+
+        # 4. 审计 + 通知量
+        audit_count = s.execute(select(func.count(AuditLog.id))).scalar() or 0
+        notif_count = s.execute(select(func.count(Notification.id))).scalar() or 0
+
+        # 5. 平均解决耗时（从 created_at 到 resolved_at）
+        resolved_rows = s.execute(
+            select(Ticket.created_at, Ticket.resolved_at)
+            .where(Ticket.resolved_at.isnot(None))
+        ).all()
+        durations = []
+        for c, r in resolved_rows:
+            if c and r:
+                durations.append((r - c).total_seconds())
+        avg_resolve_sec = sum(durations) / len(durations) if durations else 0
+
+        result = {
+            "total_tickets": total,
+            "status_distribution": status_dist,
+            "recent_7days": days,
+            "engineers": engineers,
+            "audit_count": audit_count,
+            "notification_count": notif_count,
+            "avg_resolve_seconds": round(avg_resolve_sec, 1),
+        }
+
+    # 6. 知识库
+    try:
+        from app.workflows.nodes.rag_search import get_retriever
+        r = get_retriever()
+        result["knowledge_chunks"] = r.count()
+    except Exception:
+        result["knowledge_chunks"] = 0
+
+    return result

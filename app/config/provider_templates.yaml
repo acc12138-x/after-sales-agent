@@ -1,0 +1,89 @@
+# ============================================================
+# Provider 声明式模板
+# 所有 OpenAI 兼容的厂商都可加到这里，后台自动渲染
+# ============================================================
+
+llm_providers:
+  ollama_native:
+    label: "本地 Ollama（原生模式）"
+    type: ollama
+    base_url: "http://127.0.0.1:11434"
+    models: ["qwen2.5-1.5b:latest", "modelscope.cn/Qwen/Qwen3-4B-GGUF:latest", "qwen2.5:3b"]
+    default_model: "qwen2.5-1.5b:latest"
+    api_key_required: false
+
+  deepseek:
+    label: "DeepSeek 官方"
+    type: openai_compat
+    base_url: "https://api.deepseek.com"
+    models: ["deepseek-chat", "deepseek-reasoner"]
+    default_model: "deepseek-chat"
+    api_key_required: true
+    docs: "https://platform.deepseek.com"
+
+  dashscope_llm:
+    label: "阿里云通义千问（LLM）"
+    type: openai_compat
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    models: ["qwen-plus", "qwen-max", "qwen-turbo", "qwen-long"]
+    default_model: "qwen-plus"
+    api_key_required: true
+    docs: "https://bailian.console.aliyun.com"
+
+  moonshot:
+    label: "Moonshot / Kimi"
+    type: openai_compat
+    base_url: "https://api.moonshot.cn/v1"
+    models: ["moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"]
+    default_model: "moonshot-v1-8k"
+    api_key_required: true
+
+  zhipu:
+    label: "智谱 GLM"
+    type: openai_compat
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
+    models: ["glm-4-plus", "glm-4-flash", "glm-4-air"]
+    default_model: "glm-4-flash"
+    api_key_required: true
+
+  openai:
+    label: "OpenAI"
+    type: openai_compat
+    base_url: "https://api.openai.com/v1"
+    models: ["gpt-4o-mini", "gpt-4o", "gpt-4-turbo"]
+    default_model: "gpt-4o-mini"
+    api_key_required: true
+
+embedding_providers:
+  ollama_native:
+    label: "本地 Ollama bge-m3（1024维）"
+    type: ollama
+    base_url: "http://127.0.0.1:11434"
+    models: ["bge-m3:latest", "nomic-embed-text:latest"]
+    default_model: "bge-m3:latest"
+    api_key_required: false
+
+  dashscope_embedding:
+    label: "阿里云 DashScope（1024维）"
+    type: openai_compat
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    models: ["text-embedding-v3", "text-embedding-v2"]
+    default_model: "text-embedding-v3"
+    api_key_required: true
+    docs: "https://bailian.console.aliyun.com"
+
+  zhipu_embedding:
+    label: "智谱 Embedding-3（1024维）"
+    type: openai_compat
+    base_url: "https://open.bigmodel.cn/api/paas/v4"
+    models: ["embedding-3"]
+    default_model: "embedding-3"
+    api_key_required: true
+
+  openai_embedding:
+    label: "OpenAI Embedding"
+    type: openai_compat
+    base_url: "https://api.openai.com/v1"
+    models: ["text-embedding-3-small", "text-embedding-3-large"]
+    default_model: "text-embedding-3-small"
+    api_key_required: true

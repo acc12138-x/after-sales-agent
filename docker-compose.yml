@@ -1,32 +1,10 @@
-version: "3.8"
+# ============================================================
+# Enterprise After-Sales Agent Platform
+# Docker Compose 完整编排
+# ============================================================
 
 services:
-  chroma:
-    image: chromadb/chroma:latest
-    container_name: easkb-chroma
-    restart: unless-stopped
-    ports:
-      - "8001:8000"
-    volumes:
-      - chroma-data:/chroma/chroma
-    environment:
-      - IS_PERSISTENT=TRUE
-      - ANONYMIZED_TELEMETRY=FALSE
-    networks:
-      - easkb-net
-
-  redis:
-    image: redis:7-alpine
-    container_name: easkb-redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes
-    networks:
-      - easkb-net
-
+  # ---------- MySQL ----------
   mysql:
     image: mysql:8.0
     container_name: easkb-mysql
@@ -38,15 +16,100 @@ services:
       MYSQL_DATABASE: after_sales_agent
       MYSQL_USER: agent
       MYSQL_PASSWORD: agent_password
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
     volumes:
       - mysql-data:/var/lib/mysql
     networks:
       - easkb-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot_password"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ---------- Redis ----------
+  redis:
+    image: redis:7-alpine
+    container_name: easkb-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --maxmemory 128mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis-data:/data
+    networks:
+      - easkb-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ---------- Chroma 向量库 ----------
+  chroma:
+    image: chromadb/chroma:latest
+    container_name: easkb-chroma
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - IS_PERSISTENT=TRUE
+      - ANONYMIZED_TELEMETRY=FALSE
+    volumes:
+      - chroma-data:/chroma/chroma
+    networks:
+      - easkb-net
+
+  # ---------- FastAPI 主服务（负责构建镜像） ----------
+  app:
+    build: .
+    image: easkb-app:latest
+    container_name: easkb-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.production
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - easkb-net
+
+  # ---------- Streamlit 管理后台（复用 app 镜像，不再 build） ----------
+  streamlit:
+    image: easkb-app:latest
+    container_name: easkb-streamlit
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env.production
+    depends_on:
+      - app
+    command: >
+      streamlit run app/admin/dashboard.py
+      --server.port 8501
+      --server.address 0.0.0.0
+      --server.headless true
+      --browser.gatherUsageStats false
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+    networks:
+      - easkb-net
 
 volumes:
-  chroma-data:
-  redis-data:
   mysql-data:
+  redis-data:
+  chroma-data:
 
 networks:
   easkb-net:

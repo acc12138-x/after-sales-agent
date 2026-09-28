@@ -7,9 +7,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
-from app.api.schemas.models import (
-    TicketCreateRequest, TicketResponse, TicketUpdateRequest,
-)
+from app.api.schemas.models import TicketCreateRequest, TicketResponse
 from app.audit.logger import log as audit_log
 from app.db.models.engineer import Engineer
 from app.db.models.ticket import Ticket
@@ -28,59 +26,34 @@ class ResolveRequest(BaseModel):
     note: str = ""
 
 
-# ---------- 内部工具 ----------
-def _pick_engineer(s, error_code: Optional[str], exclude_names: Optional[list] = None):
+def _pick_engineer(s, error_code: str, exclude_names: Optional[list] = None):
+    """派单：技能 + 在线 + 负载未满 + 排除指定工程师。"""
     exclude_names = exclude_names or []
     rows = s.execute(select(Engineer).where(Engineer.status == "online")).scalars().all()
-    candidates = [e for e in rows
-                  if e.current_load < e.max_load and e.name not in exclude_names]
+
+    candidates = [
+        e for e in rows
+        if e.current_load < e.max_load and e.name not in exclude_names
+    ]
+
     if not candidates:
         return None
-    if error_code:
-        skilled = [e for e in candidates if error_code in e.skill_list]
-        pool = skilled if skilled else candidates
-    else:
-        pool = candidates
+
+    # 技能匹配优先
+    skilled = [e for e in candidates if error_code in e.skill_list]
+    pool = skilled if skilled else candidates
     pool.sort(key=lambda x: (x.current_load, x.id))
     return pool[0]
 
 
-def _compute_missing(device_model: Optional[str], error_code: Optional[str]) -> str:
-    """返回缺失字段的逗号分隔字符串。空字符串 = 完整。"""
-    missing = []
-    if not (device_model or "").strip():
-        missing.append("device_model")
-    if not (error_code or "").strip():
-        missing.append("error_code")
-    return ",".join(missing)
-
-
-# ---------- 建单 ----------
 def do_create_ticket(
-    device_model: Optional[str] = None,
-    error_code: Optional[str] = None,
+    device_model: str,
+    error_code: str,
     description: str = "",
     contact: str = "",
     address: str = "",
 ) -> dict:
-    """创建工单。
-
-    规则：
-    - device_model / error_code 至少提供一个，否则 400
-    - 只提供其中一个 -> 允许建单，标记 missing_fields
-    - 都提供 -> 完整工单
-    """
-    device_model = (device_model or "").strip() or None
-    error_code = (error_code or "").strip() or None
-
-    if not device_model and not error_code:
-        raise HTTPException(
-            status_code=400,
-            detail="设备型号（device_model）和故障码（error_code）至少提供一个",
-        )
-
     tid = f"T{uuid4().hex[:8].upper()}"
-    missing = _compute_missing(device_model, error_code)
 
     with session_scope() as s:
         engineer = _pick_engineer(s, error_code)
@@ -97,7 +70,6 @@ def do_create_ticket(
             description=description,
             contact=contact,
             address=address,
-            missing_fields=missing,
             created_at=datetime.utcnow(),
             assigned_at=datetime.utcnow(),
             assign_count=1,
@@ -107,72 +79,25 @@ def do_create_ticket(
         s.flush()
 
         result = t.to_dict()
-        engineer_name = engineer.name
-        engineer_id = engineer.id
 
-    # 会话外只使用普通变量
+    # 通知 + 审计（事务外）
     notify(
-        target=engineer_name,
+        target=engineer.name,
         event="ticket_assigned",
         title=f"新工单 {tid}",
-        content=f"设备 {device_model or '待补充'} 故障码 {error_code or '待补充'}，请及时处理。",
+        content=f"设备 {device_model} 故障码 {error_code}，请及时处理。",
     )
     audit_log(
         action="ticket.created",
         actor="system",
         target_type="ticket",
         target_id=tid,
-        detail={
-            "engineer": engineer_name,
-            "error_code": error_code,
-            "missing": missing,
-        },
+        detail={"engineer": engineer.name, "error_code": error_code},
     )
-    result["engineer_id"] = engineer_id
+
     return result
 
 
-# ---------- 补全 ----------
-def do_update_ticket(ticket_id: str, req: TicketUpdateRequest) -> dict:
-    """补全或修改工单字段。只处理非 None 的字段。"""
-    with session_scope() as s:
-        t = s.get(Ticket, ticket_id)
-        if t is None:
-            raise HTTPException(status_code=404, detail="工单不存在")
-        if t.status in ("closed", "cancelled"):
-            raise HTTPException(status_code=400, detail=f"工单已 {t.status}，无法修改")
-
-        changed = {}
-        for field in ("device_model", "error_code", "description", "contact", "address"):
-            val = getattr(req, field, None)
-            if val is None:
-                continue
-            val = str(val).strip()
-            old = getattr(t, field)
-            if val and val != (old or ""):
-                setattr(t, field, val)
-                changed[field] = {"old": old, "new": val}
-
-        if not changed:
-            return t.to_dict()
-
-        # 重新计算缺失字段
-        t.missing_fields = _compute_missing(t.device_model, t.error_code)
-        t.updated_at = datetime.utcnow()
-        s.flush()
-        result = t.to_dict()
-
-    audit_log(
-        action="ticket.updated",
-        actor="api",
-        target_type="ticket",
-        target_id=ticket_id,
-        detail={"changes": changed},
-    )
-    return result
-
-
-# ---------- API ----------
 @router.post("", response_model=TicketResponse)
 async def create_ticket(req: TicketCreateRequest) -> TicketResponse:
     t = do_create_ticket(
@@ -190,11 +115,6 @@ async def create_ticket(req: TicketCreateRequest) -> TicketResponse:
     )
 
 
-@router.patch("/{ticket_id}")
-async def update_ticket(ticket_id: str, req: TicketUpdateRequest):
-    return do_update_ticket(ticket_id, req)
-
-
 @router.get("/{ticket_id}")
 async def get_ticket(ticket_id: str):
     with session_scope() as s:
@@ -205,20 +125,19 @@ async def get_ticket(ticket_id: str):
 
 
 @router.get("")
-async def list_all_tickets(status: Optional[str] = None, incomplete_only: bool = False):
+async def list_all_tickets(status: Optional[str] = None):
     with session_scope() as s:
         q = select(Ticket).order_by(Ticket.created_at.desc())
         if status:
             q = q.where(Ticket.status == status)
         rows = s.execute(q).scalars().all()
         items = [t.to_dict() for t in rows]
-        if incomplete_only:
-            items = [x for x in items if not x["is_complete"]]
     return {"total": len(items), "items": items}
 
 
-# ---------- 状态机 ----------
+# ============ 状态机 ============
 def _transition(ticket_id: str, new_status: str, extra: dict = None) -> dict:
+    """状态变更核心逻辑。"""
     with session_scope() as s:
         t = s.get(Ticket, ticket_id)
         if t is None:
@@ -229,24 +148,20 @@ def _transition(ticket_id: str, new_status: str, extra: dict = None) -> dict:
                 detail=f"不允许从 {t.status} 流转到 {new_status}",
             )
 
-        # 建单必填项完整才能开始处理（生产约束）
-        if new_status in ("accepted", "in_progress") and not t.is_complete:
-            raise HTTPException(
-                status_code=400,
-                detail=f"工单信息不完整（缺: {','.join(t.missing_list)}），请先补全",
-            )
-
         old_status = t.status
         t.status = new_status
         t.updated_at = datetime.utcnow()
+
         if extra:
             for k, v in extra.items():
                 setattr(t, k, v)
 
+        # 时间戳
         if new_status == "accepted":
             t.accepted_at = datetime.utcnow()
         elif new_status == "resolved":
             t.resolved_at = datetime.utcnow()
+            # 负载 -1
             if t.assigned_engineer_id:
                 eng = s.get(Engineer, t.assigned_engineer_id)
                 if eng and eng.current_load > 0:
@@ -257,6 +172,7 @@ def _transition(ticket_id: str, new_status: str, extra: dict = None) -> dict:
         result = t.to_dict()
         result["_old_status"] = old_status
 
+    # 审计 + 通知
     audit_log(
         action=f"ticket.{new_status}",
         actor="api",
@@ -277,6 +193,7 @@ async def accept_ticket(ticket_id: str):
 
 @router.post("/{ticket_id}/reject")
 async def reject_ticket(ticket_id: str, req: RejectRequest):
+    """拒单 -> 重新派给其他工程师。"""
     with session_scope() as s:
         t = s.get(Ticket, ticket_id)
         if t is None:
@@ -285,16 +202,20 @@ async def reject_ticket(ticket_id: str, req: RejectRequest):
             raise HTTPException(status_code=400, detail=f"当前状态 {t.status} 不能拒单")
 
         old_engineer = t.assigned_to
+        # 释放旧工程师负载
         if t.assigned_engineer_id:
             old_eng = s.get(Engineer, t.assigned_engineer_id)
             if old_eng and old_eng.current_load > 0:
                 old_eng.current_load -= 1
 
+        # 重新派单
         new_eng = _pick_engineer(s, t.error_code, exclude_names=[old_engineer])
+
         if new_eng is None:
             t.status = "rejected"
             t.reject_reason = req.reason
             result = t.to_dict()
+            result["_old_status"] = "rejected_no_engineer"
         else:
             t.status = "assigned"
             t.assigned_to = new_eng.name
@@ -304,35 +225,50 @@ async def reject_ticket(ticket_id: str, req: RejectRequest):
             t.assigned_at = datetime.utcnow()
             new_eng.current_load += 1
             result = t.to_dict()
+            result["_old_status"] = "reassigned"
             result["new_engineer"] = new_eng.name
 
+    # 通知旧工程师 + 审计
     notify(target=old_engineer, event="ticket_rejected",
            title=f"工单 {ticket_id} 已拒单", content=req.reason or "无原因")
     if result.get("new_engineer"):
         notify(target=result["new_engineer"], event="ticket_assigned",
                title=f"新工单 {ticket_id}", content="请及时处理")
-    audit_log(action="ticket.rejected", actor="api", target_type="ticket",
-              target_id=ticket_id,
-              detail={"reason": req.reason, "old": old_engineer})
+    audit_log(
+        action="ticket.rejected",
+        actor="api",
+        target_type="ticket",
+        target_id=ticket_id,
+        detail={"reason": req.reason, "old_engineer": old_engineer},
+    )
     return result
 
 
 @router.post("/{ticket_id}/start")
 async def start_ticket(ticket_id: str):
-    return _transition(ticket_id, "in_progress")
+    r = _transition(ticket_id, "in_progress")
+    notify(target=r["assigned_to"], event="ticket_in_progress",
+           title=f"工单 {ticket_id} 开始处理")
+    return r
 
 
 @router.post("/{ticket_id}/resolve")
 async def resolve_ticket(ticket_id: str, req: ResolveRequest):
-    return _transition(ticket_id, "resolved", extra={"resolved_note": req.note})
+    r = _transition(ticket_id, "resolved", extra={"resolved_note": req.note})
+    notify(target=r["assigned_to"], event="ticket_resolved",
+           title=f"工单 {ticket_id} 已解决")
+    return r
 
 
 @router.post("/{ticket_id}/close")
 async def close_ticket(ticket_id: str):
-    return _transition(ticket_id, "closed")
+    r = _transition(ticket_id, "closed")
+    notify(target=r["assigned_to"], event="ticket_closed",
+           title=f"工单 {ticket_id} 已关闭")
+    return r
 
 
-# ---------- 审计 / 通知 ----------
+# ============ 审计 / 通知 查询 ============
 @router.get("/{ticket_id}/audit")
 async def get_ticket_audit(ticket_id: str, limit: int = 50):
     from app.db.models.audit_log import AuditLog
@@ -354,8 +290,12 @@ async def get_ticket_notifications(ticket_id: str, limit: int = 50):
         if t is None:
             raise HTTPException(status_code=404, detail="ticket not found")
         rows = s.execute(
-            select(Notification).order_by(Notification.created_at.desc()).limit(limit)
+            select(Notification)
+            .order_by(Notification.created_at.desc())
+            .limit(limit)
         ).scalars().all()
+        # 只返回与该工单相关的（简单过滤：content 或 title 包含 ticket_id）
         items = [r.to_dict() for r in rows
-                 if ticket_id in (r.title or "") or ticket_id in (r.content or "")]
+                 if ticket_id in (r.title or "") or ticket_id in (r.content or "")
+                 or r.target == t.assigned_to]
         return {"items": items}

@@ -1,6 +1,8 @@
-"""嵌入封装：支持 Ollama bge-m3 / DashScope text-embedding-v3 切换。
+"""嵌入封装：根据 base_url 自动路由到 Ollama 原生或 OpenAI 兼容。
 
-两种模型维度都是 1024，可无缝互换，不需重建 Chroma。
+判断规则：
+- base_url 含 "11434" 或 "ollama" -> Ollama 原生
+- 其他 -> OpenAI 兼容（DashScope / OpenAI / 智谱 等）
 """
 from __future__ import annotations
 
@@ -10,23 +12,33 @@ from typing import List
 from app.config.settings import get_settings
 
 
+def _is_ollama_base(base_url: str) -> bool:
+    """根据 base_url 判断是否走 Ollama 原生。"""
+    if not base_url:
+        return True
+    return "11434" in base_url or "ollama" in base_url.lower()
+
+
 @lru_cache
 def get_embeddings():
     s = get_settings()
+    base_url = s.embedding_base_url or s.ollama_base_url
+    model = s.embedding_model or s.ollama_embedding_model
 
-    if s.embedding_provider == "dashscope" and s.dashscope_api_key:
-        from langchain_openai import OpenAIEmbeddings
-        return OpenAIEmbeddings(
-            model=s.dashscope_embedding_model,
-            api_key=s.dashscope_api_key,
-            base_url=s.dashscope_base_url,
-            check_embedding_ctx_length=False,
+    if _is_ollama_base(base_url):
+        from langchain_ollama import OllamaEmbeddings
+        return OllamaEmbeddings(
+            model=model,
+            base_url=base_url,
         )
 
-    from langchain_ollama import OllamaEmbeddings
-    return OllamaEmbeddings(
-        model=s.ollama_embedding_model,
-        base_url=s.ollama_base_url,
+    from langchain_openai import OpenAIEmbeddings
+    api_key = s.embedding_api_key or "sk-dummy"
+    return OpenAIEmbeddings(
+        model=model,
+        api_key=api_key,
+        base_url=base_url,
+        check_embedding_ctx_length=False,
     )
 
 

@@ -16,3 +16,7 @@ frpc.exe
 # Day 备份
 _backup_*/
 
+
+# 前端
+frontend/node_modules/
+frontend/dist/

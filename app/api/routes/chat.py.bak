@@ -1,5 +1,5 @@
+
 from __future__ import annotations
-import traceback
 from fastapi import APIRouter
 
 from app.api.schemas.models import ChatRequest, ChatResponse
@@ -17,27 +17,11 @@ async def chat(req: ChatRequest) -> ChatResponse:
         "slots": {},
     }
     config = {"configurable": {"thread_id": req.thread_id}}
-
-    try:
-        final = graph.invoke(init, config=config)
-    except Exception as e:
-        tb = traceback.format_exc()
-        print("=" * 60)
-        print("[CHAT ERROR]", e)
-        print(tb)
-        print("=" * 60)
-        return ChatResponse(
-            thread_id=req.thread_id,
-            answer=f"❌ 处理失败：{type(e).__name__}: {e}",
-            intent=None,
-            confidence=0.0,
-            citations=[],
-            flow_status="error",
-            hitl_pending=False,
-            hitl_reason=None,
-        )
+    final = graph.invoke(init, config=config)
 
     answer = final.get("answer") or ""
+
+    # 兜底：answer 为空时
     if not answer.strip():
         status = final.get("flow_status", "")
         if status == "waiting":
@@ -48,19 +32,11 @@ async def chat(req: ChatRequest) -> ChatResponse:
         else:
             answer = "暂无相关依据，建议转人工。"
 
-    # 意图和置信度分开处理：ticket / order 分支不显示 RAG 置信度
-    intent = final.get("intent")
-    raw_conf = final.get("confidence")
-    if intent in ("ticket", "order_query", "logistics"):
-        confidence = 0.0
-    else:
-        confidence = float(raw_conf or 0.0)
-
     return ChatResponse(
         thread_id=req.thread_id,
         answer=answer,
-        intent=intent,
-        confidence=confidence,
+        intent=final.get("intent"),
+        confidence=float(final.get("confidence", 0.0) or 0.0),
         citations=final.get("citations", []) or [],
         flow_status=final.get("flow_status", "succeeded"),
         hitl_pending=bool(final.get("hitl_pending", False)),

@@ -1,0 +1,251 @@
+from __future__ import annotations
+import re
+from typing import Dict, List
+
+from app.config.settings import get_settings
+from app.workflows.state import AgentState
+
+_LLM_CACHE = None
+
+THINK_BLOCK = re.compile(r"<think[^>]*>.*?</think[^>]*>", re.DOTALL | re.IGNORECASE)
+THINK_TAG = re.compile(r"</?think[^>]*>", re.IGNORECASE)
+
+STOP_MARKERS = [
+    "根据知识片段", "根据上述分析", "根据以上分析", "根据提供的",
+    "用户问题：", "用户问题:", "用户提问：", "用户提问:",
+    "\n问题：", "\n问题:", "\n答案：", "\n答案:",
+    "参考来源：", "参考来源:", "参考:", "参考资料:",
+    "**用户问题", "**答案",
+    "\n备注：", "\n备注:", "\n注：", "\n注:",
+    "回答：", "回答:", "总结：", "总结:",
+]
+
+REPEAT_CIT = re.compile(r"(\[\d+\]\s*){2,}")
+LEADING_NO_INFO = re.compile(r"^\s*暂[无未][^。\n]*建议转人工[。\.]?\s*")
+BRACKET_ACTION = re.compile(r"\[(检查|重启|更换|确认|排查|处理)[^\]]{0,30}\]")
+NO_INFO_KEYWORDS = ["暂无相关依据", "无法回答", "知识片段中没", "没有相关"]
+
+TERM_MAP = {
+    # 设备/部件
+    "temperature": "温度", "temp": "温度",
+    "sensor": "传感器",
+    "device": "设备", "equipment": "设备",
+    "module": "模块", "board": "主板", "chip": "芯片",
+    "motor": "电机", "battery": "电池", "fan": "风扇",
+    "power": "电源", "supply": "供电", "connector": "接口",
+    "wire": "接线", "cable": "线缆", "connection": "接线",
+    "switch": "开关", "button": "按钮", "display": "显示",
+    "screen": "屏幕", "panel": "面板", "light": "指示灯",
+    "valve": "阀门", "pump": "泵", "filter": "滤芯",
+    # 故障/状态
+    "warning": "报警", "alert": "告警", "alarm": "报警",
+    "error": "故障", "fault": "故障", "failure": "故障",
+    "code": "代码", "issue": "问题", "problem": "问题",
+    "abnormal": "异常", "normal": "正常", "broken": "损坏",
+    # 操作
+    "check": "检查", "inspect": "检查", "verify": "确认",
+    "restart": "重启", "reboot": "重启", "reset": "复位",
+    "replace": "更换", "change": "更换", "swap": "更换",
+    "clean": "清洁", "adjust": "调整", "calibrate": "校准",
+    # 其他
+    "step": "步骤", "solution": "解决方案", "cause": "原因",
+}
+
+_SPACE_IN_CJK = re.compile(r"(?<=[\u4e00-\u9fff])\s+(?=[\u4e00-\u9fff])")
+_CJK_EN_BOUNDARY = re.compile(r"([\u4e00-\u9fff])\s+([A-Za-z])")
+_EN_CJK_BOUNDARY = re.compile(r"([A-Za-z])\s+([\u4e00-\u9fff])")
+
+
+def _normalize_text(text: str) -> str:
+    if not text:
+        return text
+    for en, zh in TERM_MAP.items():
+        # 支持单数 + 复数 s/es
+        text = re.sub(rf"\b{en}(s|es)?\b", zh, text, flags=re.IGNORECASE)
+    for _ in range(3):
+        new = _SPACE_IN_CJK.sub("", text)
+        if new == text:
+            break
+        text = new
+    text = _CJK_EN_BOUNDARY.sub(r"\1\2", text)
+    text = _EN_CJK_BOUNDARY.sub(r"\1\2", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return text
+
+
+def _dedup_citations(text: str) -> str:
+    if not text:
+        return text
+    seen = set()
+
+    def _repl(m):
+        num = m.group(1)
+        if num in seen:
+            return ""
+        seen.add(num)
+        return m.group(0)
+
+    text = re.sub(r"\[(\d+)\]", _repl, text)
+    text = re.sub(r"\s+([。，；：！？、])", r"\1", text)
+    text = re.sub(r" {2,}", " ", text)
+    return text.strip()
+
+
+def _strip_think(text: str) -> str:
+    return THINK_TAG.sub("", THINK_BLOCK.sub("", text))
+
+
+def _truncate_at_marker(text: str) -> str:
+    earliest = len(text)
+    for marker in STOP_MARKERS:
+        idx = text.find(marker)
+        if 0 < idx < earliest:
+            earliest = idx
+    return text[:earliest].rstrip()
+
+
+def clean_answer(text: str) -> str:
+    if not text:
+        return text
+    text = _strip_think(text)
+    text = _truncate_at_marker(text)
+    text = LEADING_NO_INFO.sub("", text)
+    text = BRACKET_ACTION.sub("", text)
+    text = REPEAT_CIT.sub(" ", text)
+    text = re.sub(r"^\[\d+\][.、:：\s]*", "", text)
+    text = re.sub(r"\n{2,}", "\n", text)
+    text = "\n".join(line.strip() for line in text.splitlines())
+    text = text.strip()
+    text = _normalize_text(text)
+    text = _dedup_citations(text)
+    if len(text) > 250:
+        text = text[:250].rstrip()
+    return text
+
+
+def _is_refusal(text: str) -> bool:
+    if not text or len(text.strip()) < 3:
+        return True
+    for kw in NO_INFO_KEYWORDS:
+        if kw in text:
+            return True
+    return False
+
+
+def get_llm():
+    """统一 LLM 工厂：
+      - ollama_native → ChatOllama
+      - 其他 → ChatOpenAI（OpenAI 兼容）
+    """
+    global _LLM_CACHE
+    if _LLM_CACHE is not None:
+        return _LLM_CACHE
+
+    s = get_settings()
+
+    if s.llm_provider == "ollama_native":
+        from langchain_ollama import ChatOllama
+        _LLM_CACHE = ChatOllama(
+            model=s.ollama_llm_model,
+            base_url=s.ollama_base_url,
+            temperature=0.1,
+            num_predict=600,
+            num_ctx=2048,
+            repeat_penalty=1.4,
+            top_p=0.85,
+            top_k=30,
+        )
+    else:
+        from langchain_openai import ChatOpenAI
+        _LLM_CACHE = ChatOpenAI(
+            model=s.llm_model,
+            api_key=s.llm_api_key or "sk-dummy",
+            base_url=s.llm_base_url,
+            temperature=0.1,
+            timeout=30,
+            max_tokens=400,
+        )
+    return _LLM_CACHE
+
+
+def reset_llm_cache() -> None:
+    global _LLM_CACHE
+    _LLM_CACHE = None
+
+
+PROMPT = """你是企业售后助手。根据下面的知识片段，用简洁中文回答用户问题。
+
+【知识片段】
+{context}
+
+【用户问题】
+{question}
+
+规则：
+1. 只使用知识片段中的信息。
+2. 全部用中文回答，禁止出现英文单词。
+3. 直接给出答案，不要复述问题，不要输出思考过程。
+4. 用 1-3 条短句，总字数 80 字以内。
+5. 结论后只标注一次引用，例如 [1]，不要重复标注。
+6. 不要在末尾加"总结"或"备注"。
+
+【回答】"""
+
+
+def format_context(chunks: List[Dict], max_chunks: int = 3) -> str:
+    lines = []
+    for i, c in enumerate(chunks[:max_chunks], 1):
+        text = c.get("text", "").strip().replace("\n", " ")
+        lines.append(f"[{i}] {text[:180]}")
+    return "\n".join(lines)
+
+
+def _fallback_from_chunks(chunks: List[Dict]) -> str:
+    if not chunks:
+        return "暂无相关依据，建议转人工。"
+    text = chunks[0]["text"].strip().replace("\n", " ")
+    return f"{text[:150].rstrip()} [1]"
+
+
+def generate_node(state: AgentState) -> AgentState:
+    chunks = state.get("retrieved", []) or []
+    question = state.get("user_input", "")
+
+    # 无检索结果 or 已标记 rejected -> 直接拒答
+    if not chunks or state.get("flow_status") == "rejected":
+        return {
+            **state,
+            "answer": "抱歉，知识库中没有找到与您问题相关的内容。请补充更多信息，或回复「转人工」联系客服。",
+            "citations": [],
+            "flow_status": "rejected",
+        }
+
+    context = format_context(chunks, max_chunks=3)
+    prompt = PROMPT.format(context=context, question=question)
+
+    answer = ""
+    try:
+        resp = get_llm().invoke(prompt)
+        raw = resp.content if hasattr(resp, "content") else str(resp)
+        answer = clean_answer(raw)
+    except Exception as e:
+        answer = f"生成失败：{e}"
+
+    if _is_refusal(answer):
+        answer = _fallback_from_chunks(chunks)
+
+    citations = [
+        {"index": i + 1, "chunk_id": c["chunk_id"], "source": c["metadata"].get("source", "")}
+        for i, c in enumerate(chunks[:3])
+    ]
+
+    messages = state.get("messages", []) or []
+    messages = messages + [{"role": "assistant", "content": answer}]
+
+    return {
+        **state,
+        "answer": answer,
+        "citations": citations,
+        "messages": messages,
+        "flow_status": "succeeded",
+    }

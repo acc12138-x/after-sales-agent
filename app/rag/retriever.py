@@ -1,5 +1,4 @@
-
-"""BM25 + 向量 混合召回（RRF 融合）。"""
+"""BM25 + 向量 混合召回（支持 Chroma embedded / http 两种模式）。"""
 from __future__ import annotations
 
 import os
@@ -14,14 +13,28 @@ from app.rag.chunking import Chunk
 from app.rag.embedding import embed_query, embed_texts
 
 
+def _make_chroma_client():
+    """根据配置创建 Chroma 客户端。"""
+    s = get_settings()
+    if s.chroma_mode == "http":
+        return chromadb.HttpClient(host=s.chroma_host, port=s.chroma_port)
+    else:
+        os.makedirs(s.chroma_persist_dir, exist_ok=True)
+        return chromadb.PersistentClient(path=s.chroma_persist_dir)
+
+
 class HybridRetriever:
     def __init__(self, persist_dir: str | None = None):
         s = get_settings()
         self.settings = s
-        self.persist_dir = persist_dir or s.chroma_persist_dir
-        os.makedirs(self.persist_dir, exist_ok=True)
 
-        self.client = chromadb.PersistentClient(path=self.persist_dir)
+        # HTTP 模式忽略 persist_dir
+        if s.chroma_mode == "embedded" and persist_dir:
+            os.makedirs(persist_dir, exist_ok=True)
+            self.client = chromadb.PersistentClient(path=persist_dir)
+        else:
+            self.client = _make_chroma_client()
+
         self.collection = self.client.get_or_create_collection(
             name=s.chroma_collection,
             metadata={"hnsw:space": "cosine"},
@@ -54,12 +67,35 @@ class HybridRetriever:
                 embeddings=embed_texts([c.text for c in children]),
             )
 
+            # BM25 索引只加子块（每次重建）
             self.bm25_ids = [c.chunk_id for c in children]
             self.bm25_texts = [c.text for c in children]
             tokenized = [list(jieba.cut(t)) for t in self.bm25_texts]
             self.bm25 = BM25Okapi(tokenized)
 
+    def _ensure_bm25(self) -> None:
+        """BM25 索引为空时，从 Chroma 拉所有子块重建。"""
+        if self.bm25 is not None and self.bm25_ids:
+            return
+        try:
+            res = self.collection.get(include=["documents", "metadatas"])
+            ids = res.get("ids", []) or []
+            docs = res.get("documents", []) or []
+            metas = res.get("metadatas", []) or []
+            child_ids, child_texts = [], []
+            for i, m in enumerate(metas):
+                if m and m.get("type") == "child":
+                    child_ids.append(ids[i])
+                    child_texts.append(docs[i])
+            if child_ids:
+                self.bm25_ids = child_ids
+                self.bm25_texts = child_texts
+                self.bm25 = BM25Okapi([list(jieba.cut(t)) for t in child_texts])
+        except Exception:
+            pass
+
     def search_bm25(self, query: str, k: int = 20) -> List[Tuple[str, float]]:
+        self._ensure_bm25()
         if self.bm25 is None or not self.bm25_ids:
             return []
         tokens = list(jieba.cut(query))
@@ -79,10 +115,7 @@ class HybridRetriever:
         return [(i, 1.0 / (1.0 + d)) for i, d in zip(ids, distances)]
 
     def search_hybrid(
-        self,
-        query: str,
-        k: int = 20,
-        rrf_k: int | None = None,
+        self, query: str, k: int = 20, rrf_k: int | None = None,
     ) -> List[Tuple[str, float]]:
         rrf_k = rrf_k or self.settings.rrf_k
         bm25_res = self.search_bm25(query, k=k * 2)
@@ -117,4 +150,7 @@ class HybridRetriever:
         return self.fetch_chunks(parent_ids)
 
     def count(self) -> int:
-        return self.collection.count()
+        try:
+            return self.collection.count()
+        except Exception:
+            return 0

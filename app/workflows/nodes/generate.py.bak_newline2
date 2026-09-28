@@ -155,19 +155,6 @@ def _format_as_numbered_list(text: str) -> str:
     2. 未编号 -> 按换行/分号/句号拆
     3. 拆出来只有 1 条 -> 保持原样
     """
-
-    # ============================================================
-    # 优先处理："1. xxx 2. xxx 3. xxx" 空格分隔的编号
-    # ============================================================
-    import re as _re
-    # 匹配文中多个编号（非开头的）
-    multi_num = _re.findall(r"(?:^|\s)([0-9]+)[.、)]\s+", text)
-    if len(multi_num) >= 2:
-        # 在除开头的每个编号前插入换行
-        text = _re.sub(r"(?<!^)(?<!\n)\s+([0-9]+)[.、)]\s+", r"\n\1. ", text)
-        text = text.strip()
-        return text
-
     if not text:
         return text
 

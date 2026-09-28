@@ -9,7 +9,7 @@ os.environ.setdefault("no_proxy", "127.0.0.1,localhost,::1")
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import chat, tickets, knowledge, stream, openai_compat, admin
+from app.api.routes import chat, tickets, knowledge, stream, openai_compat, admin, engineers, audit
 from app.api.schemas.models import HealthResponse
 from app.config.settings import get_settings
 
@@ -34,6 +34,8 @@ app.include_router(knowledge.router)
 app.include_router(stream.router)
 app.include_router(openai_compat.router)
 app.include_router(admin.router)
+app.include_router(engineers.router)
+app.include_router(audit.router)
 
 
 @app.get("/health", response_model=HealthResponse)

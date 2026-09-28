@@ -45,3 +45,46 @@ class KnowledgeIngestRequest(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str = "0.1.0"
+
+
+# ============ 工程师 ============
+class EngineerCreate(BaseModel):
+    name: str
+    skills: List[str] = []
+    region: str = ""
+    phone: str = ""
+    feishu_open_id: str = ""
+    status: str = "online"
+    max_load: int = 10
+
+
+class EngineerUpdate(BaseModel):
+    name: Optional[str] = None
+    skills: Optional[List[str]] = None
+    region: Optional[str] = None
+    phone: Optional[str] = None
+    feishu_open_id: Optional[str] = None
+    status: Optional[str] = None
+    max_load: Optional[int] = None
+
+
+class EngineerResponse(BaseModel):
+    id: int
+    name: str
+    skills: List[str] = []
+    region: str = ""
+    phone: str = ""
+    feishu_open_id: str = ""
+    status: str
+    current_load: int
+    max_load: int
+    created_at: Optional[str] = None
+
+
+class TicketUpdateRequest(BaseModel):
+    """补全或修改工单字段。只传需要改的字段。"""
+    device_model: Optional[str] = None
+    error_code: Optional[str] = None
+    description: Optional[str] = None
+    contact: Optional[str] = None
+    address: Optional[str] = None
