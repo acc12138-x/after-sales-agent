@@ -1,385 +1,190 @@
-# 🛠️ 企业售后知识库智能问答与工单自动化 Agent 平台
+# Enterprise After-Sales Knowledge Base Agent Platform
 
-> **Enterprise After-Sales Knowledge Base Intelligent Q&A and Ticket Automation Agent Platform**
+> 企业售后知识库智能问答与工单自动化 Agent 平台
 
-基于 **OpenClaw + LangGraph + Ollama** 的企业级售后 Agent 平台，支持多渠道接入、RAG 知识库问答、自动建单派单、HITL 人工审批，通过 **frp 内网穿透** 实现云端接入与本地 GPU 推理的混合部署。
+基于 **LangGraph + RAG + Ollama/云端API + OpenClaw + Vue 3** 的企业级售后 Agent。
+支持多渠道接入、混合召回检索、规则引擎、工单状态机、HITL 人工审批。
 
 ---
 
-## 📋 项目简介
+## 📊 量化指标（自研评估框架）
 
-**解决痛点**：
+| 指标 | 值 | 说明 |
+|---|---|---|
+| Context Recall | **0.875** | 检索召回率（优秀） |
+| Context Precision | **0.667** | 上下文精确率（良好） |
+| Answer Relevancy | **0.688** | 答案相关性 |
+| Faithfulness | **0.688** | 忠实度（受限于本地模型） |
 
-- 售后文档分散（PDF / Word / Excel / 聊天记录），知识难沉淀
-- 客服重复回答相同问题，效率低
-- 工单分派依赖人工，错派重派时有发生
-- 敏感数据无法直接调用公有云大模型
-
-**核心能力**：
-
-- 🔍 RAG 智能问答（带引用溯源）
-- 🎫 工单自动化（自动建单 + 按技能派单）
-- 🚦 HITL 人工审批（关键操作走人工确认）
-- 🌐 多渠道接入（飞书 / 企业微信 / 钉钉）
-- 🖥️ 可视化管理后台（知识库 / 对话 / 工单 / 配置）
+评估方式：8 题测试集 × 4 指标 × LLM-as-judge（通义千问）
 
 ---
 
 ## 🏗️ 整体架构
 
-### 部署视图
-
 ```
-终端用户 (飞书 / 企微 / 钉钉 / 网页)
+飞书 / 企微 / 钉钉
         │
         ▼
-┌──────────────────────────────────────────────────────────┐
-│  云服务器 (阿里云 2核1.8G)                                │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │  OpenClaw Gateway (0.0.0.0:15568)                  │  │
-│  │  ├─ openclaw-lark          (飞书)                  │  │
-│  │  ├─ wecom-openclaw-plugin  (企业微信)              │  │
-│  │  ├─ dingtalk-connector     (钉钉)                  │  │
-│  │  └─ Custom Provider: local-rag                     │  │
-│  └────────────────────┬───────────────────────────────┘  │
-│                       │ http://127.0.0.1:18000/v1        │
-│  ┌────────────────────▼───────────────────────────────┐  │
-│  │  frps (0.61.1)                                     │  │
-│  │  ├─ :7000  控制端口                                │  │
-│  │  └─ :18000 隧道端口 → 本地 FastAPI                 │  │
-│  └────────────────────┬───────────────────────────────┘  │
-└───────────────────────┼──────────────────────────────────┘
-                        │ frp 反向隧道
-                        ▼
-┌──────────────────────────────────────────────────────────┐
-│  本地 GPU 机器 (GTX 1060 6GB)                             │
-│  ┌────────────────────────────────────────────────────┐  │
-│  │  frpc.exe                                          │  │
-│  └────────────────────┬───────────────────────────────┘  │
-│                       │ 127.0.0.1:8000                   │
-│  ┌────────────────────▼───────────────────────────────┐  │
-│  │  FastAPI                                           │  │
-│  │  ├─ /v1/chat/completions    OpenAI 兼容层          │  │
-│  │  ├─ /threads/{id}/runs/stream    SSE 流            │  │
-│  │  ├─ /threads/{id}/runs/resume    HITL 恢复         │  │
-│  │  └─ /chat /knowledge /tickets /health              │  │
-│  └────────────────────┬───────────────────────────────┘  │
-│                       │                                  │
-│  ┌────────────────────▼───────────────────────────────┐  │
-│  │  LangGraph 工作流                                  │  │
-│  │  intent → slot_filling → [rag|ticket|order]        │  │
-│  │  → generate → hitl_gate                            │  │
-│  │  + MemorySaver checkpointer                        │  │
-│  └────────────────────┬───────────────────────────────┘  │
-│                       │                                  │
-│  ┌────────────────────▼───────────────────────────────┐  │
-│  │  RAG 检索层                                        │  │
-│  │  父子块切片 + BM25 + 向量 + RRF + 重排             │  │
-│  └────────────────────┬───────────────────────────────┘  │
-│                       │                                  │
-│  ┌────────────────────▼───────────────────────────────┐  │
-│  │  Ollama (bge-m3 + Qwen3-4B)                        │  │
-│  └────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────┘
+┌────────────────────────────────────┐
+│  OpenClaw Gateway（云端）           │
+│  ├─ openclaw-lark（飞书）           │
+│  └─ Custom Provider: local-rag      │
+└────────────────┬───────────────────┘
+                 │ OpenAI 兼容层
+                 ▼
+┌────────────────────────────────────┐
+│  FastAPI 后端                       │
+│  LangGraph · RAG · 规则引擎         │
+│  Chroma · MySQL · Redis             │
+└────────────────┬───────────────────┘
+                 │
+                 ▼
+┌────────────────────────────────────┐
+│  Vue 3 前端（Element Plus）         │
+│  8 Tab 管理后台                     │
+└────────────────────────────────────┘
 ```
-
-### 数据流
-
-1. 用户在飞书发送消息
-2. OpenClaw Gateway 接收，调用 `local-rag` Provider
-3. Provider 请求 `http://127.0.0.1:18000/v1/chat/completions`
-4. frps 通过隧道转发到本地 frpc
-5. frpc 转给 `127.0.0.1:8000` (FastAPI)
-6. FastAPI 调用 LangGraph 工作流
-7. LangGraph 执行 RAG / 建单 / 转人工逻辑
-8. 结果沿原路返回
 
 ---
 
 ## 🧰 技术栈
 
-| 层级 | 技术 | 版本 |
-|---|---|---|
-| 接入网关 | OpenClaw | 2026.6.10 |
-| Agent 编排 | LangGraph | 1.2.11 |
-| 后端框架 | FastAPI + Uvicorn | 0.141.1 |
-| LLM 框架 | LangChain | 1.4.2 |
-| 本地推理 | Ollama + Qwen3-4B / bge-m3 | 0.6.2 |
-| 向量数据库 | ChromaDB | 1.5.9 |
-| 关键词检索 | rank-bm25 + jieba | - |
-| 重排 | bge-m3 余弦相似度 | - |
-| 缓存 | Redis | 8.1.0 |
-| 业务数据库 | SQLAlchemy + PyMySQL | 2.0.54 |
-| 任务队列 | Celery | 5.6.3 |
-| 评估 | RAGAS + LangSmith | 0.4.3 |
-| 管理后台 | Streamlit | - |
-| 内网穿透 | frp | 0.61.1 |
-| 运行环境 | Python | 3.12.7 |
+| 层级 | 技术 |
+|---|---|
+| Agent 编排 | LangGraph 1.2 · LangChain 1.4 |
+| 后端框架 | FastAPI 0.141 · Pydantic 2.13 |
+| 本地推理 | Ollama · Qwen3-4B · bge-m3 |
+| 云端 API | 通义千问 · DeepSeek · Moonshot · 智谱 · OpenAI |
+| 向量库 | Chroma 1.5 |
+| 检索 | rank-bm25 · jieba · RRF 融合 |
+| 数据层 | MySQL 8 · SQLAlchemy 2.0 |
+| 前端 | **Vue 3 · Vite · Element Plus · ECharts** |
+| 接入网关 | OpenClaw 2026.6.10 |
+| 内网穿透 | frp 0.61.1 |
+| 容器化 | Docker 29.2 · Docker Compose 5.0 |
+| 运行环境 | Python 3.12 · Node.js 24 |
 
 ---
 
 ## ✨ 核心功能
 
-### 1. 智能问答（RAG）
-
-- 意图识别：`qa` / `ticket` / `order` / `complaint` / `human`
-- Query 改写 + 同义词扩展
-- BM25 + 向量混合召回，RRF 融合
+### 1. RAG 检索增强
+- 父子块切片（子块检索、父块生成）
+- BM25 + 向量混合召回 + RRF 融合
 - bge-m3 余弦相似度重排
-- 强制引用 + 无答案兜底
+- 相关性阈值 + 实体词覆盖（双重过滤）
 
-### 2. 工单自动化
+### 2. LangGraph 状态机
+- 意图识别（11 类）→ 咨询问句后置判断
+- 上下文收集（订单 / 物流 / 商品 / 客户）
+- 规则引擎匹配 → 动作执行
+- HITL 中断 + MemorySaver 恢复
 
-- 自动建单：收集设备型号、故障码，调用 `create_ticket`
-- 自动派单：按故障码匹配工程师技能
-- 幂等控制：防止重复建单
-- 工单状态流转：`pending` → `assigned` → `resolved`
+### 3. 规则引擎（自研框架）
+- core / loaders / data 三层分离
+- 19 个内置操作符 + 可扩展
+- 支持点号路径（user.vip）
+- YAML 数据可热加载
 
-### 3. HITL 人工审批
+### 4. 工单状态机
+- pending → assigned → accepted → in_progress → resolved → closed
+- 拒单自动重派（排除原工程师）
+- 派单算法：技能 + 在线 + 负载升序
 
-- 触发条件：`human` / `complaint` 意图，或置信度 < 0.5
-- 用 LangGraph `interrupt()` 暂停工作流
-- 通过 SSE `hitl` 事件通知 OpenClaw
-- 用户在飞书回复"同意" → 调 `langgraph_resume` 恢复
+### 5. 多渠道接入
+- OpenAI 兼容层：把 LangGraph 伪装成 LLM Provider
+- OpenClaw 零改动接入飞书
 
-### 4. 多渠道接入
-
-- 飞书：`openclaw-lark`（已验证 `works`）
-- 企业微信：`wecom-openclaw-plugin`
-- 钉钉：`dingtalk-connector`
-
-### 5. 可视化管理后台（Streamlit）
-
-| Tab | 功能 |
-|---|---|
-| 📚 知识库 | 上传文档、切片、向量化、检索测试 |
-| 💬 对话测试 | 直连 LangGraph，不用飞书 |
-| 🎫 工单 | 列表、详情、统计 |
-| ⚙️ 系统配置 | 可视化改 `.env`，一键保存 |
-| 📊 监控 | Ollama / FastAPI / Chroma 探活 |
-
----
-
-## 🎯 关键技术亮点
-
-### 1. OpenClaw + LangGraph 双引擎架构
-
-- **OpenClaw** 管接入：多渠道统一、工具网关、权限收敛
-- **LangGraph** 管编排：状态机、多轮、HITL、子图
-- 两者通过 **OpenAI 兼容层** 桥接
-
-### 2. 内网穿透混合部署
-
-- 云端 OpenClaw（公网可达）+ 本地 GPU 推理（数据不出域）
-- frp 反向隧道打通，本地无公网 IP 也能服务
-
-### 3. HITL 中断恢复
-
-- LangGraph `interrupt()` + `MemorySaver` checkpointer
-- SSE 事件流通知 OpenClaw，跨系统审批
-- 用户回复后 `Command(resume=...)` 从断点继续
-
-### 4. 5 层幻觉抑制
-
-| 层 | 手段 |
-|---|---|
-| Prompt | 强制只基于上下文，禁止自问自答 |
-| 输出限制 | `num_predict=600`，防无限生成 |
-| 参数 | `temperature=0.1`，`repeat_penalty=1.4` |
-| 后处理 | 去 think 块、截断自问自答、压重复引用 |
-| 兜底 | 检测到拒答 → 用检索片段 fallback |
-
-### 5. 父子块切片
-
-- 按标题层级递归切分
-- 父块（大块）用于生成，子块（小块）用于检索
-- 检索命中子块 → 通过 `parent_id` 回溯父块，保证上下文完整
-
-### 6. 混合召回 + RRF 融合
-
-BM25 保关键词 + 向量保语义，RRF 融合：`score = sum(1 / (rrf_k + rank))`
+### 6. Vue 3 前端管理后台
+- 8 个 Tab：对话 / 知识库 / 工单 / 工程师 / 审计 / 通知 / 配置 / 监控
+- ECharts 可视化
+- 配置热重载
 
 ---
 
 ## 📁 项目结构
 
 ```
-app/
-  main.py                       FastAPI 入口
-  config/
-    settings.py                 Pydantic Settings
-    llm_router.py               混合推理路由（预留）
-  gateway/skills/               OpenClaw Skills 模拟
-  workflows/
-    graph.py                    LangGraph 状态图
-    state.py                    AgentState 定义
-    nodes/                      各功能节点
-  rag/
-    chunking.py                 父子块切片
-    embedding.py                bge-m3 封装
-    retriever.py                混合召回
-    reranker.py                 重排
-  api/routes/
-    chat.py                     简单问答
-    tickets.py                  工单 CRUD
-    knowledge.py                知识上传
-    stream.py                   SSE 端点
-    openai_compat.py            OpenAI 兼容层
-  admin/dashboard.py            Streamlit 后台
-  evaluation/                   RAGAS 评估（预留）
-docs/                           需求 / 架构 / Bridge 契约
-scripts/
-  start_all.py                  一键启动
-  run_admin.py                  Streamlit 启动
-tests/
-data/                           Chroma 持久化
-logs/                           运行日志
+app/                      后端
+  main.py                 FastAPI 入口
+  config/                 Provider 抽象
+  workflows/              LangGraph 工作流
+  rag/                    RAG 检索层
+  rules/                  规则引擎
+  services/               业务服务
+  intent/                 意图识别
+  api/routes/             REST 路由
+  db/                     SQLAlchemy 模型
+  audit/                  审计日志
+  notify/                 通知模拟
+  evaluation/             自研评估
+frontend/                 前端
+  src/views/              8 个页面
+  src/api/                HTTP 封装
+  src/router/             路由
+  src/layouts/            主布局
+scripts/                  脚本
+data/                     Chroma + ragas
+docs/                     文档
 ```
 
 ---
 
 ## 🚀 快速开始
 
-### 前置依赖
-
-- Python 3.10+
-- Ollama（本地模型）
-- Docker（可选，用于 Redis / MySQL）
-- frps / frpc（可选，用于内网穿透）
-
-### 1. 克隆仓库
-
-```bash
-git clone https://github.com/acc12138-x/after-sales-agent.git
-cd after-sales-agent
-```
-
-### 2. 创建虚拟环境
+### 后端
 
 ```bash
 python -m venv venv
-source venv/bin/activate
+venv\Scripts\activate
 pip install -r requirements.txt
+python scripts\start_all.py
 ```
 
-### 3. 拉取本地模型
+### 前端
 
 ```bash
-ollama pull bge-m3
-ollama pull qwen2.5:3b
+cd frontend
+npm install
+npm run dev
 ```
 
-### 4. 配置环境变量
-
-```bash
-cp .env.example .env
-```
-
-### 5. 一键启动
-
-```bash
-python scripts/start_all.py
-```
-
-自动拉起：
-
-- FastAPI → http://127.0.0.1:8000
-- Streamlit → http://127.0.0.1:8501
-- frpc（如已配置）
-
-### 6. 访问管理后台
-
-浏览器打开 http://127.0.0.1:8501
+浏览器打开 http://127.0.0.1:5173
 
 ---
 
-## 📡 API 文档
-
-启动 FastAPI 后访问 http://127.0.0.1:8000/docs
+## 📡 主要 API
 
 | 方法 | 路径 | 用途 |
 |---|---|---|
-| GET | `/health` | 健康检查 |
-| POST | `/chat` | 简单问答 |
-| POST | `/knowledge/ingest` | 文档上传 |
-| GET | `/knowledge/stats` | 知识库统计 |
-| POST | `/tickets` | 建单 |
-| GET | `/tickets` | 工单列表 |
-| GET | `/tickets/{id}` | 工单详情 |
-| POST | `/threads/{id}/runs/stream` | SSE 流式问答 |
-| POST | `/threads/{id}/runs/resume` | HITL 恢复 |
-| GET | `/threads/{id}/state` | 查看 thread 状态 |
-| POST | `/v1/chat/completions` | OpenAI 兼容层 |
-| GET | `/v1/models` | 模型列表 |
+| POST | /chat | 智能问答 |
+| GET  | /knowledge/docs | 文档列表 |
+| POST | /knowledge/ingest-file | 文件上传 |
+| GET  | /tickets | 工单列表 |
+| POST | /tickets/{id}/accept | 接单 |
+| POST | /tickets/{id}/reject | 拒单（自动重派） |
+| GET  | /engineers | 工程师列表 |
+| GET  | /logs/audit | 审计日志 |
+| GET  | /logs/notifications | 通知记录 |
+| POST | /admin/reload | 热重载引擎 |
+| GET  | /admin/dashboard/stats | 看板数据 |
+
+详见 http://127.0.0.1:8000/docs
 
 ---
 
-## ⚙️ 环境变量
-
-见 `.env.example`，主要项：
-
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `OLLAMA_BASE_URL` | Ollama 地址 | `http://127.0.0.1:11434` |
-| `OLLAMA_LLM_MODEL` | 生成模型 | `qwen2.5:3b` |
-| `OLLAMA_EMBEDDING_MODEL` | 嵌入模型 | `bge-m3:latest` |
-| `CHROMA_PERSIST_DIR` | Chroma 数据目录 | `./data/chroma` |
-| `CHUNK_SIZE` | 切片大小 | `512` |
-| `CHUNK_OVERLAP` | 切片重叠 | `64` |
-| `TOP_K_RETRIEVE` | 召回 TopK | `20` |
-| `TOP_K_RERANK` | 重排 TopK | `5` |
-| `DEEPSEEK_API_KEY` | 云端 API（可选） | 空 |
-| `REDIS_HOST` | Redis 地址 | `127.0.0.1` |
-| `MYSQL_HOST` | MySQL 地址 | `127.0.0.1` |
-
----
-
-## 🏭 部署架构
-
-### 方案 A：纯本地（开发 / 测试）
-
-本地机器：Ollama + FastAPI + Chroma + Streamlit
-
-### 方案 B：云端接入 + 本地推理（生产推荐）
-
-云服务器（OpenClaw + frps）— frp → 本地 GPU（FastAPI + Ollama + Chroma）
-
-### 方案 C：Docker Compose 一键部署
+## 🔬 RAG 评估
 
 ```bash
-docker-compose up -d
+python scripts/run_eval.py
 ```
 
-拉起：Chroma + Redis + MySQL + FastAPI
-
----
-
-## ⚠️ 已知限制
-
-- **本地 GPU 要求**：Qwen3-4B 在 6GB 显存上首次加载需 30-60 秒
-- **小模型幻觉**：1.5B 模型指令遵循能力弱，推荐 3B 以上
-- **单点故障**：当前为单机部署，生产建议多副本
-- **数据持久化**：工单存内存，重启丢失（MySQL 版本开发中）
-
----
-
-## 🗺️ Roadmap
-
-- [x] RAG 检索层
-- [x] LangGraph 工作流
-- [x] FastAPI + OpenAI 兼容层
-- [x] OpenClaw 集成
-- [x] 飞书接入
-- [x] frp 内网穿透
-- [x] Streamlit 管理后台
-- [x] HITL 中断恢复
-- [x] 一键启动脚本
-- [ ] RAGAS 量化评估
-- [ ] MySQL 工单持久化
-- [ ] Redis 语义缓存
-- [ ] Docker Compose 完整编排
-- [ ] 企业微信 / 钉钉接入
-- [ ] Prometheus / Grafana 监控
+自研评估框架（不依赖 ragas）实现 4 个指标：
+- faithfulness
+- answer_relevancy
+- context_precision
+- context_recall
 
 ---
 

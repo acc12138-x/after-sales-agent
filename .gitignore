@@ -1,22 +1,51 @@
-﻿.env
+# ===== Python =====
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ===== 虚拟环境 =====
+venv/
+venv*/
+.venv/
+
+# ===== 环境变量（含密钥）=====
+.env
+.env.production
 *.env
 !.env.example
-__pycache__/
-*.pyc
+
+# ===== 数据与缓存 =====
 data/
 logs/
-.venv/
-venv/
-.idea/
-.vscode/
-frp/
-frpc.exe
+*.db
+*.sqlite
 *.log
 
-# Day 备份
-_backup_*/
+# ===== IDE =====
+.idea/
+.vscode/
 
+# ===== frp =====
+frp/
+frpc.exe
+frps
 
-# 前端
+# ===== 前端 =====
 frontend/node_modules/
 frontend/dist/
+frontend/.vite/
+
+# ===== 备份与临时 =====
+_backup_*/
+*.bak
+*.bak_*
+_diag_*.py
+_theme.css
+_*.py
+
+# ===== 系统 =====
+.DS_Store
+Thumbs.db
