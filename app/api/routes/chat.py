@@ -57,6 +57,11 @@ async def chat(req: ChatRequest) -> ChatResponse:
     # ============================================================
     # 缓存：只对短文本问题、非命令类做
     # ============================================================
+    # 把 settings 里的值同步到 os.environ（供 cache_service 判断后端）
+    import os as _os
+    _os.environ.setdefault("CACHE_BACKEND", getattr(settings, "cache_backend", "sqlite"))
+    _os.environ.setdefault("REDIS_URL", getattr(settings, "redis_url", "redis://127.0.0.1:6379/0"))
+
     cache = get_cache()
     cached = None
     query_emb = None

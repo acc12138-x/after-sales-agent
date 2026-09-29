@@ -98,6 +98,10 @@ class Settings(BaseSettings):
     # JWT
     # ============================================================
     # 数据库模式：mysql / sqlite
+    # 缓存后端：sqlite / redis
+    cache_backend: str = "sqlite"
+    redis_url: str = "redis://127.0.0.1:6379/0"
+
     db_mode: str = "sqlite"
 
     jwt_secret: str = "CHANGE_ME_IN_ENV"

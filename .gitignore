@@ -49,3 +49,6 @@ _*.py
 # ===== ç³»ç»Ÿ =====
 .DS_Store
 Thumbs.db
+
+# Redis Windows ¶þ½øÖÆ
+tools/
