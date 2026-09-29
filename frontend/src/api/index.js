@@ -38,6 +38,14 @@ http.interceptors.response.use(
 export default {
   login: (data) => http.post("/auth/login", data),
 
+  // ---------- 飞书 ----------
+  getFeishuStatus: () => http.get("/feishu/status"),
+  getFeishuConfig: () => http.get("/feishu/config"),
+  updateFeishuWebhook: (data) => http.put("/feishu/webhook", data),
+  testFeishuPrivate: (data) => http.post("/feishu/test-private", data),
+  testFeishuDispatch: (data) => http.post("/feishu/test-dispatch", data),
+  sendFeishuRaw: (data) => http.post("/feishu/send", data),
+
   getApprovalsPending: () => http.get("/approvals/pending"),
   getApprovalStats: () => http.get("/approvals/stats"),
   batchApproveRefunds: (data) => http.post("/approvals/refunds/batch", data),

@@ -7,7 +7,7 @@
       <el-col :span="4"><el-card shadow="never" class="stat-card"><el-statistic title="📋 总工单" :value="stats.total_tickets" /></el-card></el-col>
       <el-col :span="5"><el-card shadow="never" class="stat-card"><el-statistic title="🆕 今日新增" :value="todayCount" /></el-card></el-col>
       <el-col :span="5"><el-card shadow="never" class="stat-card"><el-statistic title="🎯 解决率" :value="resolveRate" suffix="%" :precision="1" /></el-card></el-col>
-      <el-col :span="5"><el-card shadow="never" class="stat-card"><el-statistic title="⏱️ 平均解决" :value="avgDisplay" /></el-card></el-col>
+      <el-col :span="5"><el-card shadow="never" class="stat-card"><el-statistic title="⏱️ 平均解决" :value="avgSeconds" :suffix="avgUnit" /></el-card></el-col>
       <el-col :span="5"><el-card shadow="never" class="stat-card"><el-statistic title="📚 知识库切片" :value="stats.knowledge_chunks" /></el-card></el-col>
     </el-row>
 
@@ -156,11 +156,18 @@ const resolveRate = computed(() => {
   return (resolved / total) * 100;
 });
 
-const avgDisplay = computed(() => {
+const avgSeconds = computed(() => {
   const s = stats.value.avg_resolve_seconds || 0;
-  if (s < 60) return s.toFixed(0) + "s";
-  if (s < 3600) return (s / 60).toFixed(1) + "min";
-  return (s / 3600).toFixed(1) + "h";
+  if (s < 60) return Number(s.toFixed(0));
+  if (s < 3600) return Number((s / 60).toFixed(1));
+  return Number((s / 3600).toFixed(1));
+});
+
+const avgUnit = computed(() => {
+  const s = stats.value.avg_resolve_seconds || 0;
+  if (s < 60) return "s";
+  if (s < 3600) return "min";
+  return "h";
 });
 
 // ============ ECharts ============

@@ -22,6 +22,7 @@ const routes = [
       { path: "engineers",     name: "工程师",    component: () => import("../views/Engineers.vue") },
       { path: "people",        name: "人员管理",  component: () => import("../views/People.vue") },
       { path: "approvals",     name: "审批台",    component: () => import("../views/Approvals.vue") },
+      { path: "feishu",        name: "飞书配置",  component: () => import("../views/FeishuConfig.vue") },
       { path: "audit",         name: "审计日志",  component: () => import("../views/Audit.vue") },
       { path: "notifications", name: "通知记录",  component: () => import("../views/Notifications.vue") },
       { path: "config",        name: "系统配置",  component: () => import("../views/Config.vue") },

@@ -339,37 +339,9 @@ function slaText(row) {
   return `${prefix}${m}m`;
 }
 
-function slaIcon(s) {
-  return { normal: "🟢", warning: "🟠", overdue: "🔴" }[s] || "⚪";
-}
 
-function slaText(row) {
-  const sec = row.remain_seconds;
-  if (sec === null || sec === undefined) return "-";
-  const abs = Math.abs(sec);
-  const h = Math.floor(abs / 3600);
-  const m = Math.floor((abs % 3600) / 60);
-  const prefix = sec < 0 ? "超时 " : "剩 ";
-  if (h >= 24) return `${prefix}${Math.floor(h/24)}d ${h%24}h`;
-  if (h > 0) return `${prefix}${h}h ${m}m`;
-  return `${prefix}${m}m`;
-}
 
-function slaIcon(s) {
-  return { normal: "🟢", warning: "🟠", overdue: "🔴" }[s] || "⚪";
-}
 
-function slaText(row) {
-  const sec = row.remain_seconds;
-  if (sec === null || sec === undefined) return "-";
-  const abs = Math.abs(sec);
-  const h = Math.floor(abs / 3600);
-  const m = Math.floor((abs % 3600) / 60);
-  const prefix = sec < 0 ? "超时 " : "剩 ";
-  if (h >= 24) return `${prefix}${Math.floor(h/24)}d ${h%24}h`;
-  if (h > 0) return `${prefix}${h}h ${m}m`;
-  return `${prefix}${m}m`;
-}
 
 async function load() {
   loading.value = true;

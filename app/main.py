@@ -1,5 +1,6 @@
 
 from __future__ import annotations
+import re
 
 import os
 
@@ -9,7 +10,7 @@ os.environ.setdefault("no_proxy", "127.0.0.1,localhost,::1")
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import approvals, chat, tickets, knowledge, stream, openai_compat, admin, engineers, audit, customers, refunds, sla, users, auth
+from app.api.routes import approvals, chat, tickets, knowledge, stream, openai_compat, admin, engineers, audit, customers, refunds, sla, users, auth, feishu
 from app.api.schemas.models import HealthResponse
 import asyncio
 from contextlib import asynccontextmanager
@@ -72,19 +73,7 @@ app.include_router(audit.router)
 app.include_router(customers.router)
 app.include_router(refunds.router)
 app.include_router(sla.router)
-
-
-@app.get("/feishu/config")
-async def feishu_config():
-    from app.services.feishu_router import list_config
-    return list_config()
-
-
-@app.post("/feishu/test")
-async def feishu_test(event: str = "sla_overdue"):
-    """测试某事件的群路由。"""
-    from app.services.feishu_router import dispatch
-    return dispatch(event, f"测试事件 {event}", "这是一条测试消息")
+app.include_router(feishu.router)
 
 
 @app.get("/cache/stats")

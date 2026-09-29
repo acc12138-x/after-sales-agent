@@ -71,6 +71,7 @@ const MENUS = [
   { path: "/engineers",     label: "工程师",    icon: User,        perm: "user.view" },
   { path: "/people",        label: "人员管理",  icon: UserFilled,  perm: "user.view" },
   { path: "/approvals",     label: "审批台",    icon: CircleCheck, perm: "refund.approve" },
+  { path: "/feishu",        label: "飞书配置",  icon: ChatDotRound, perm: "sla.edit" },
   { path: "/audit",         label: "审计日志",  icon: Document,    perm: "audit.view" },
   { path: "/notifications", label: "通知记录",  icon: Bell },
   { path: "/config",        label: "系统配置",  icon: Setting,     perm: "sla.edit" },
