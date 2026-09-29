@@ -73,6 +73,26 @@ app.include_router(refunds.router)
 app.include_router(sla.router)
 
 
+@app.get("/cache/stats")
+async def cache_stats():
+    from app.services.cache_service import get_cache
+    return get_cache().stats()
+
+
+@app.post("/cache/clear")
+async def cache_clear():
+    from app.services.cache_service import get_cache
+    n = get_cache().clear_all()
+    return {"cleared": n}
+
+
+@app.post("/cache/cleanup")
+async def cache_cleanup():
+    from app.services.cache_service import get_cache
+    n = get_cache().clear_expired()
+    return {"cleared": n}
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health():
     return HealthResponse(status="ok")

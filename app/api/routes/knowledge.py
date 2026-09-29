@@ -65,6 +65,13 @@ async def ingest(req: KnowledgeIngestRequest):
     chunks = chunk_document(req.content, doc_id=req.doc_id, source=req.source)
     retriever = get_retriever()
     retriever.index_chunks(chunks)
+    # 知识库变更 -> 清空缓存
+    try:
+        from app.services.cache_service import get_cache
+        cleared = get_cache().clear_all()
+        print(f"[CACHE] cleared {cleared} entries after ingest")
+    except Exception:
+        pass
     return {
         "doc_id": req.doc_id,
         "chunks": len(chunks),
@@ -97,6 +104,11 @@ async def ingest_file(
     )
     retriever = get_retriever()
     retriever.index_chunks(chunks)
+    try:
+        from app.services.cache_service import get_cache
+        get_cache().clear_all()
+    except Exception:
+        pass
 
     return {
         "doc_id": doc_id,

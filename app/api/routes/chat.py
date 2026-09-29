@@ -7,6 +7,7 @@ from langgraph.types import Command
 
 from app.api.schemas.models import ChatRequest, ChatResponse
 from app.workflows.graph import graph
+from app.services.cache_service import get_cache
 from app.config.settings import get_settings
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -52,6 +53,46 @@ async def chat(req: ChatRequest) -> ChatResponse:
     print(f"\n[CHAT] trace_id={trace_id[:8]} thread={req.thread_id} msg={req.message[:60]!r}")
     config = {"configurable": {"thread_id": req.thread_id}}
     settings = get_settings()
+
+    # ============================================================
+    # 缓存：只对短文本问题、非命令类做
+    # ============================================================
+    cache = get_cache()
+    cached = None
+    query_emb = None
+
+    if len(req.message) <= 100 and not req.message.strip().startswith("T"):
+        # 第一步：exact 命中，不需要 embedding（快）
+        try:
+            cached = cache.get_exact(req.message)
+            if cached:
+                cached["_cache_hit"] = "exact"
+        except Exception as e:
+            print(f"[CACHE] exact lookup failed: {e}")
+
+        # 第二步：exact 未命中，算 embedding 做语义匹配
+        if not cached:
+            try:
+                from app.rag.embedding import embed_query
+                query_emb = embed_query(req.message)
+                cached = cache.get_semantic(query_emb)
+                if cached:
+                    cached["_cache_hit"] = "semantic"
+            except Exception as e:
+                print(f"[CACHE] semantic lookup failed: {e}")
+
+    if cached:
+        print(f"[CACHE] {cached.get('_cache_hit')} hit: {req.message[:30]}...")
+        return ChatResponse(
+            thread_id=req.thread_id,
+            answer=cached["answer"],
+            intent=cached.get("intent"),
+            confidence=cached.get("confidence", 0.0),
+            citations=cached.get("citations", []),
+            flow_status="succeeded",
+            hitl_pending=False,
+            hitl_reason=None,
+        )
     timeout_sec = getattr(settings, "hitl_timeout_seconds", 1800)
 
     is_interrupted = False
@@ -145,6 +186,25 @@ async def chat(req: ChatRequest) -> ChatResponse:
         confidence = 0.0
     else:
         confidence = float(raw_conf or 0.0)
+
+    # 缓存：仅缓存成功、qa 类、非中断的响应
+    if (final.get("flow_status") == "succeeded"
+            and intent == "qa"
+            and not final.get("hitl_pending")):
+        try:
+            cache.set(
+                req.message,
+                {
+                    "answer": answer,
+                    "intent": intent,
+                    "confidence": confidence,
+                    "citations": final.get("citations", []) or [],
+                },
+                intent=intent,
+                embedding=query_emb,
+            )
+        except Exception as e:
+            print(f"[CACHE] set failed: {e}")
 
     return ChatResponse(
         thread_id=req.thread_id,
