@@ -1,7 +1,5 @@
 # 面试话术与深挖问答
 
----
-
 ## 一、1 分钟项目介绍
 
 我做的项目叫 **企业售后知识库智能问答与工单自动化 Agent 平台**。
@@ -9,71 +7,73 @@
 **背景**：企业售后客服要同时应对产品手册、历史工单、订单系统，重复劳动多、工单派单靠人工。
 
 **架构**：三块——
-1. **接入层**用 OpenClaw 做多渠道网关（飞书/企微/钉钉），通过 OpenAI 兼容层对接我的服务；
-2. **编排层**用 LangGraph 做状态机：意图识别 → 上下文收集 → 规则匹配 → 动作执行 → HITL 审批；
-3. **能力层**是 RAG 检索 + 规则引擎 + 业务服务。
+1. **接入层**用 OpenClaw 做多渠道网关（飞书/企微/钉钉），通过 OpenAI 兼容层对接我的服务
+2. **编排层**用 LangGraph 做状态机：意图识别 → 上下文收集 → 规则匹配 → 动作执行 → HITL 审批
+3. **能力层**是 RAG 检索 + 规则引擎 + 业务服务 + 权限体系
 
 **技术亮点**：
-- RAG 用**父子块切片 + BM25/向量混合召回 + RRF 融合 + 重排**，自研评估框架量化出 context_recall 0.875；
-- 意图识别加**咨询问句后置判断**，避免"E102 报警怎么排查"被误判成建单；
-- 输出有**6 层后处理**，去 think 块、繁转简、英转中、引用去重；
-- 工单用 MySQL 持久化 + **状态机**，拒单自动重派；
-- HITL 用 LangGraph 的 **interrupt + checkpointer**，支持跨系统中断恢复。
+- RAG 用父子块切片 + BM25/向量混合召回 + RRF 融合 + 重排，context_recall 0.875
+- 意图识别加咨询问句后置判断，避免"E102 报警怎么排查"被误判成建单
+- 语义缓存用 SQLite 两级命中（exact + embedding 0.90），命中响应 20x 加速
+- JWT 权限体系：Web 后台 + 飞书命令双通道校验，角色 + 个人覆盖
+- HITL 用 LangGraph 的 interrupt + SQLite checkpointer，支持跨进程中断恢复
 
-**量化结果**：知识库检索 recall 0.875、precision 0.667，8 Tab Vue 3 管理后台，Docker 化部署，OpenClaw 飞书实测 works。
+**量化结果**：context_recall 0.875，缓存加速 20x，pytest 43 用例，13 Tab Vue 3 后台，Docker 化部署。
 
-**不足**：业务数据目前是 Mock，生产对接需要替换 Service 实现；生成端 faithfulness 0.688，受限于本地 Qwen3-4B，切云端 API 后会提升。
+**不足**：业务数据 Mock，生产需替换 Service 实现。
 
 ---
 
-## 二、三大工程难点
+## 二、核心难点深挖
 
 ### 难点 1：RAG 检索结果不相关时仍强行回答
 
 **现象**：用户问"今天天气怎么样"，系统返回"E102 报警排查步骤"。
 
-**根因**：向量检索永远返回 TopK；没有相关性阈值，模型硬套知识片段。
+**根因**：向量检索永远返回 TopK，没有相关性阈值。
 
 **解决方案（5 层过滤）**：
-1. Prompt 约束：强制"只基于上下文"
-2. 阈值过滤：rerank_score < 0.55 → 拒答
-3. 实体词覆盖：query 里的型号必须出现在 Top 结果
-4. 无答案拒答：无检索结果直接返回"建议转人工"
-5. fallback：LLM 拒答时用检索片段兜底
+1. Prompt 约束
+2. 阈值过滤：rerank_score < 0.55 拒答
+3. 实体词覆盖
+4. 无答案拒答
+5. fallback 用检索片段兜底
 
-**效果**：闲聊问题 top_score 0.3-0.5 → 拒答；业务问题 0.6-0.77 → 正常回答。
+### 难点 2：LLM 输出带思考痕迹
 
-### 难点 2：LLM 输出带"思考痕迹"
+**现象**：答案里出现标题路径、中英混杂、繁体、引用重复。
 
-**现象**：答案里出现 `[设备E102 > 故障现象]` 标题路径、`temperature 传感 器` 中英混杂、`啟動後` 繁体、`[1]` 出现两次。
-
-**根因**：检索时给子块加了标题路径前缀，Qwen3 直接复述；Qwen3 是思考模型，会输出 think 块和自问自答。
-
-**解决方案（6 层后处理链）**：
-```python
-def clean_answer(text):
-    text = _strip_think(text)              # 1. 去 <think> 块
-    text = HEADING_PATH_RE.sub("", text)   # 2. 去 [xxx > yyy] 标题路径
-    text = _truncate_at_marker(text)       # 3. 遇到"用户问题："等截断
-    text = LEADING_NO_INFO.sub("", text)   # 4. 去开头"暂无相关依据"
-    text = _dedup_citations(text)          # 5. 同编号引用只保留首次
-    text = _to_simplified(text)            # 6. 繁转简
-    text = _normalize_text(text)           # 7. 英转中（temperature→温度）
-    text = _format_as_numbered_list(text)  # 8. 强制编号列表
-    return text
-```
+**解决方案（多层后处理）**：去 think 块 → 剥 heading → 截断自问自答 → 引用去重 → 繁转简 → 强制编号。
 
 ### 难点 3：HITL 跨系统中断恢复
 
-**现象**：用户说"我要转人工"，Agent 需要暂停等审批，审批完成后从断点继续。
+**方案**：SqliteSaver 持久化 + interrupt() 暂停 + Command(resume) 恢复 + 30 分钟超时。
 
-**根因**：LangGraph 是有状态的，但状态默认存内存，服务重启后丢失。
+### 难点 4：语义缓存设计
 
-**解决方案**：
-- `MemorySaver` 持久化中断状态
-- `interrupt()` 暂停工作流（生产换 `SqliteSaver`）
-- SSE 端点推送 `hitl` 事件给 OpenClaw
-- `Command(resume=decision)` 恢复工作流
+**方案**：
+- 两级命中：exact（MD5）+ semantic（embedding 余弦 0.90）
+- 只缓存 qa 类
+- 失效：TTL 24h + ingest 后清空
+- 后端可插拔
+
+**效果**：exact 20x、semantic 11x 加速。
+
+### 难点 5：JWT 权限体系
+
+**方案**：
+- 角色默认权限 + 个人 allow/deny 覆盖
+- effective = 角色默认 + allow - deny
+- 双通道：Web 走 Depends，飞书走 open_id 校验
+- 前端菜单过滤 hasPerm
+
+### 难点 6：多飞书群路由
+
+**方案**：单机器人 + 多群 webhook + 事件路由 yaml + 降级到 notifications 表。
+
+### 难点 7：MySQL 5.5 兼容
+
+**方案**：case 表达式模拟 NULLS LAST，跨数据库通用。
 
 ---
 
@@ -81,58 +81,51 @@ def clean_answer(text):
 
 ### Q1：为什么用 LangGraph 而不是 LangChain Agent？
 
-LangChain Agent 是**隐式循环**，LLM 自己决定下一步，不可控；LangGraph 是**显式状态机**，每个节点可测、可观测、可中断。
-我的场景需要 HITL（人工审批）、状态持久化、多轮槽位填充——LangGraph 原生支持 `interrupt()` + `checkpointer`。
+LangChain Agent 是隐式循环，LLM 自己决定下一步，不可控；LangGraph 是显式状态机，每个节点可测、可观测、可中断。我的场景需要 HITL、状态持久化、多轮槽位填充。
 
 ### Q2：父子块切片怎么理解？
 
-传统切法有两种极端：小块检索准但生成缺上下文；大块上下文全但检索噪声大。
-父子块是**用小块检索、用大块生成**：父块 = 一个 section，子块 = section 内的小片段。
-检索时命中子块 → 通过 `parent_id` 回溯父块 → 送父块给 LLM。
+用小块检索、用大块生成。父块 = 一个 section，子块 = section 内的小片段。
 
 ### Q3：RRF 融合是什么？
 
-Reciprocal Rank Fusion，多路召回结果融合算法。公式 `score = Σ 1/(k + rank)`，k 通常取 60。
-BM25 和向量的分数**量纲不同**，不能直接相加。RRF 只看**排名**，天然解决量纲问题。
+Reciprocal Rank Fusion，公式 score = Σ 1/(k + rank)，k 通常取 60。只看排名，天然解决 BM25 和向量分数量纲不同的问题。
 
 ### Q4：怎么保证不瞎编？
 
-4 道防线：
-1. **Prompt 约束**："只使用知识片段，禁止编造"
-2. **阈值过滤**：相关性 < 0.55 → 拒答
-3. **无答案兜底**：检索空 → "暂无相关依据，建议转人工"
-4. **后处理**：去掉 LLM 输出的"总结/备注"这类发散内容
+4 道防线：Prompt 约束 + 阈值过滤 + 无答案兜底 + 后处理。
 
 ### Q5：工单派单怎么保证公平？
 
-派单算法：**技能匹配 + 在线状态 + 负载未满 + 负载升序**。
-- 先筛：`status == "online"` 且 `current_load < max_load`
-- 再按故障码匹配技能（E102 派给会修 E102 的）
-- 最后按负载升序，让最闲的人接单
-
-拒单后：**排除原工程师，重派给下一个**，`assign_count += 1`。
+技能匹配 + 在线状态 + 负载未满 + 负载升序。拒单后排除原工程师，重派给下一个。
 
 ### Q6：本地模型 vs 云端 API 怎么选？
 
-**Provider 抽象 + base_url 判断**：用户填 `http://127.0.0.1:11434` 走 Ollama 原生，其他 URL 走 OpenAI 兼容。
-开发用本地（免费、快速），生产用云端（质量高、稳定）。**评估用云端**：本地 Qwen3-4B 当 judge 会超时 60 秒，通义千问 2 秒出结果。
+Provider 抽象 + base_url 判断。开发用本地，生产用云端。评估用云端。
 
 ### Q7：为什么不做微调？
 
-两个原因：
-1. **成本**：微调需要 GPU + 数据集准备，投入产出比低
-2. **优先度**：RAG + Prompt + 后处理已解决 80% 问题，剩下 20% 用云端 API 兜底
-
-未来方向：用人工校验数据做 QLoRA 微调，让模型更懂企业术语。
+成本高 + 优先度低。RAG + Prompt + 后处理已解决 80% 问题。未来用 QLoRA 微调。
 
 ### Q8：项目有没有上生产？
 
-架构设计是生产级的，但**业务数据是 Mock**。
-- 订单/物流/商品/客户 → JSON 假数据，生产对接 ERP/CRM 需要替换 Service 实现
-- 工程师 → MySQL 真表 + 4 条种子数据
-- 通知 → 记录到 DB，生产对接飞书 Webhook
+架构是生产级，业务数据是 Mock。核心理念：框架是真的，业务是假的。
 
-**核心理念**：**框架是真的，业务是假的**。生产化改造只需要替换 `impl/` 里的 Service 类，不改架构。
+### Q9：语义缓存如何避免脏数据？
+
+3 个失效机制：TTL 24h、ingest 后清空、只缓存 qa 类。
+
+### Q10：JWT 怎么防篡改？
+
+HS256 签名 + secret 存 .env（128 字符）+ 7 天过期 + 前端 localStorage。
+
+### Q11：为什么用 SQLite 缓存而不是 Redis？
+
+SQLite 零依赖、<10ms、可持久化，适合中小规模。Redis 适合多实例。架构预留 RedisBackend，业务代码零改动。
+
+### Q12：43 个 pytest 用例覆盖了什么？
+
+intent 12 个 + rules 7 个 + services 6 个 + cache 4 个 + rag 3 个 + api_auth 7 个 + api_tickets 4 个。没覆盖 chat 全流程（云端 LLM 慢）和 approvals 批量。
 
 ---
 
@@ -140,10 +133,11 @@ BM25 和向量的分数**量纲不同**，不能直接相加。RRF 只看**排�
 
 | 项 | 状态 |
 |---|---|
-| GitHub 有 README + 架构图 | ✅ |
-| 有量化数据（4 指标） | ✅ |
-| 能一句话说清项目做什么 | ✅ |
-| 能演示端到端流程 | ✅ |
-| 有 3 个可深挖的难点 | ✅ |
-| 诚实说明 Mock 和未做 | ✅ |
-| 代码有注释和文档 | ✅ |
+| GitHub 有 README + 架构图 | 是 |
+| 有量化数据（4 指标 + 20x 缓存） | 是 |
+| 能一句话说清项目做什么 | 是 |
+| 能演示端到端流程 | 是 |
+| 有 5+ 个可深挖的难点 | 是 |
+| 有 pytest 单测 | 是 |
+| 诚实说明 Mock 和未做 | 是 |
+| 代码有注释和文档（8/8 篇） | 是 |
