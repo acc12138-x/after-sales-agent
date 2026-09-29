@@ -70,8 +70,10 @@ def rewrite_query(q: str) -> str:
 
 def rag_search_node(state: AgentState) -> AgentState:
     s = get_settings()
+    trace = state.get("trace_id", "?")[:8]
     query = state.get("user_input", "")
     rewritten = rewrite_query(query)
+    print(f"[RAG:{trace}] query={query!r} rewritten={rewritten!r}")
 
     retriever = get_retriever()
     hits = retriever.search_hybrid(rewritten, k=s.top_k_retrieve)
@@ -82,9 +84,11 @@ def rag_search_node(state: AgentState) -> AgentState:
     seen = {c["chunk_id"] for c in candidates}
     pool = candidates + [p for p in parents if p["chunk_id"] not in seen]
 
-    reranked = rerank(rewritten, pool, top_k=s.top_k_rerank)
+    # 返回大池子给 generate 做 heading 过滤，不在这一层截断
+    reranked = rerank(rewritten, pool, top_k=max(15, s.top_k_rerank))
 
     if not reranked:
+        print(f"[RAG:{trace}] reranked empty -> rejected")
         return {
             **state,
             "retrieved": [],
@@ -92,6 +96,7 @@ def rag_search_node(state: AgentState) -> AgentState:
             "query_rewritten": rewritten,
             "flow_status": "rejected",
         }
+    print(f"[RAG:{trace}] reranked={len(reranked)} top_score={reranked[0].get('rerank_score', 0):.4f}")
 
     top_score = float(reranked[0].get("rerank_score", 0.0))
     confidence = max(0.0, min(1.0, top_score))

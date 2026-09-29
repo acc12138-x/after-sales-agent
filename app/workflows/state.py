@@ -7,6 +7,7 @@ import operator
 class AgentState(TypedDict, total=False):
     # 会话
     thread_id: str
+    trace_id: str
     user_input: str
     messages: Annotated[List[Dict], operator.add]
 

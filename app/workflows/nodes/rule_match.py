@@ -1,4 +1,4 @@
-"""规则匹配节点：根据意图+上下文，用规则引擎匹配规则。"""
+﻿"""规则匹配节点：根据意图+上下文，用规则引擎匹配规则。"""
 from __future__ import annotations
 from typing import Any, Dict
 
@@ -9,14 +9,15 @@ from app.workflows.state import AgentState
 
 # 意图 → 规则 category 映射
 INTENT_TO_CATEGORY = {
-    "return":      "return",
-    "exchange":    "return",
-    "refund":      "return",
-    "warranty":    "warranty",
-    "repair":      "warranty",
-    "order_query": None,
-    "logistics":   None,
-    "invoice":     None,
+    "return":       "return",
+    "exchange":     "return",
+    "refund_apply": "return",
+    "compensation": "return",
+    "warranty":     "warranty",
+    "repair":       "warranty",
+    "order_query":  None,
+    "logistics":    None,
+    "invoice":      None,
 }
 
 
@@ -47,7 +48,7 @@ def rule_match_node(state: AgentState) -> AgentState:
     if not matches:
         return state
 
-    # 过滤掉默认兜底规则（id=_default_no_match）
+    # 过滤掉默认兜底规则
     real_matches = [m for m in matches if m.rule.id != "_default_no_match"]
     if not real_matches:
         return state

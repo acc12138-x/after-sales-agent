@@ -119,16 +119,6 @@ BUSINESS_KEYWORDS = [
 def _is_consult_query(text: str) -> bool:
     if not text:
         return False
-
-    # 新增：故障码(E102) + 报警/故障词，且没有显式动作词 -> 咨询
-    has_code = bool(re.search(r"[Ee]\d{2,4}", text))
-    has_alarm = any(k in text for k in ["报警", "故障", "异常", "报错"])
-    has_action = any(w in text for w in ACTION_WORDS)
-    if has_code and has_alarm and not has_action:
-        # 但"帮我报修 E102" 这种有动作词的除外
-        # 纯"E503 安全门报警" -> qa
-        return True
-
     for w in BUSINESS_KEYWORDS:
         if w in text:
             return False
@@ -230,7 +220,6 @@ def intent_node(state: AgentState) -> AgentState:
     _maybe_reload_engine()
 
     text = state.get("user_input", "")
-    trace = state.get("trace_id", "?")[:8]
     messages_history = state.get("messages", []) or []
     old_slots = state.get("slots", {}) or {}
 

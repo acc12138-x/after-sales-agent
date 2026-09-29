@@ -1,7 +1,8 @@
-
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
+import time
+from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 
 from fastapi import APIRouter, Request
@@ -9,14 +10,55 @@ from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 
 from app.workflows.graph import graph
+from app.config.settings import get_settings
 
 router = APIRouter(prefix="/threads", tags=["stream"])
 
 
+# ============================================================
+# 决策解析（与 chat.py 保持一致）
+# ============================================================
+APPROVE_WORDS = ["同意", "确认", "批准", "通过", "可以", "好的", "好", "approve", "yes", "ok", "okay"]
+REJECT_WORDS = ["拒绝", "驳回", "不同意", "不行", "取消", "否", "reject", "no"]
+
+
+def _parse_decision(text: str):
+    t = (text or "").strip().lower()
+    if not t:
+        return None
+    for w in REJECT_WORDS:
+        if t == w.lower() or t.startswith(w.lower()):
+            return "block_revise: 用户拒绝"
+    for w in APPROVE_WORDS:
+        if t == w.lower() or t.startswith(w.lower()):
+            return "approve"
+    return None
+
+
+def _hitl_age_seconds(snapshot) -> float:
+    """当前中断的存活秒数。取不到时间戳就返回 0。"""
+    try:
+        created_at = getattr(snapshot, "created_at", None)
+        if not created_at:
+            return 0.0
+        if isinstance(created_at, str):
+            # ISO 格式，可能是 "2026-01-01T12:00:00+00:00" 或 "...Z"
+            s = created_at.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(s)
+        else:
+            dt = created_at
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt).total_seconds()
+    except Exception:
+        return 0.0
+
+
+# ============================================================
+# SSE 工具
+# ============================================================
 def safe_json(obj: Any) -> str:
-    """把任意对象转成 JSON 字符串，遇到不可序列化的对象做降级处理。"""
     def _default(o):
-        # Interrupt 对象
         if hasattr(o, "value"):
             return {"__interrupt__": True, "value": _to_serializable(o.value)}
         if hasattr(o, "to_json"):
@@ -25,7 +67,6 @@ def safe_json(obj: Any) -> str:
             except Exception:
                 pass
         return str(o)
-
     return json.dumps(obj, ensure_ascii=False, default=_default)
 
 
@@ -44,32 +85,19 @@ def sse(event: str, data: Any) -> str:
 
 
 def classify_event(node_name: str, node_output: Any) -> tuple[str, dict]:
-    """把 LangGraph 输出映射到 Bridge 契约的 5 种事件类型。"""
-
-    # 1) 中断事件：LangGraph 用 __interrupt__ 作为 key
     if node_name == "__interrupt__":
-        # node_output 可能是 tuple / list / 单个 Interrupt
         items = node_output if isinstance(node_output, (list, tuple)) else [node_output]
         first = items[0] if items else {}
         payload = getattr(first, "value", first)
         return "hitl", {"type": "hitl", "payload": _to_serializable(payload)}
-
-    # 2) 节点执行结果
     if isinstance(node_output, dict):
         status = node_output.get("flow_status")
         if status in ("succeeded", "rejected", "waiting"):
-            return "milestone", {
-                "type": "milestone",
-                "node": node_name,
-                "status": status,
-            }
-
-    # 3) 其他一律作为 status（静默）
+            return "milestone", {"type": "milestone", "node": node_name, "status": status}
     return "status", {"type": "status", "node": node_name}
 
 
 def build_fallback_answer(state: dict) -> str:
-    """HITL 场景下没有 RAG answer，根据 intent 给一个提示语。"""
     intent = state.get("intent", "")
     if intent == "human":
         return "已转人工，客服稍后接入。"
@@ -78,6 +106,9 @@ def build_fallback_answer(state: dict) -> str:
     return state.get("answer", "") or ""
 
 
+# ============================================================
+# /runs/stream
+# ============================================================
 @router.post("/{thread_id}/runs/stream")
 async def stream_run(thread_id: str, request: Request):
     body = await request.json()
@@ -105,7 +136,6 @@ async def stream_run(thread_id: str, request: Request):
             snapshot = graph.get_state(config)
             final_values = snapshot.values if snapshot else {}
 
-            # 中断中：停在 hitl_gate，等待 resume
             if snapshot and snapshot.next:
                 yield sse("hitl", {
                     "type": "hitl",
@@ -115,7 +145,6 @@ async def stream_run(thread_id: str, request: Request):
                 })
                 return
 
-            # 正常结束
             answer = final_values.get("answer", "") or build_fallback_answer(final_values)
             yield sse("terminal", {
                 "type": "terminal",
@@ -125,22 +154,57 @@ async def stream_run(thread_id: str, request: Request):
                 "citations": final_values.get("citations", []),
                 "intent": final_values.get("intent"),
             })
-
         except Exception as e:
-            yield sse("terminal", {
-                "type": "terminal",
-                "status": "failed",
-                "error": str(e),
-            })
+            yield sse("terminal", {"type": "terminal", "status": "failed", "error": str(e)})
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+# ============================================================
+# /runs/resume（第 2 项：支持 message 字段 + 超时）
+# ============================================================
 @router.post("/{thread_id}/runs/resume")
 async def resume_run(thread_id: str, request: Request):
     body = await request.json()
-    decision = body.get("decision", "approve")
     config = {"configurable": {"thread_id": thread_id}}
+    settings = get_settings()
+    timeout_sec = getattr(settings, "hitl_timeout_seconds", 1800)
+
+    # 优先取 decision 字段；没有就解析 message
+    decision = body.get("decision")
+    if not decision:
+        msg = body.get("message") or body.get("text") or body.get("input", {}).get("message", "")
+        decision = _parse_decision(msg)
+
+    # 检查超时
+    try:
+        snapshot = graph.get_state(config)
+    except Exception:
+        snapshot = None
+
+    if snapshot and snapshot.next:
+        age = _hitl_age_seconds(snapshot)
+        if age > timeout_sec:
+            try:
+                result = graph.invoke(Command(resume="block_revise: timeout"), config=config)
+                return {
+                    "thread_id": thread_id,
+                    "decision": "timeout",
+                    "timed_out": True,
+                    "age_seconds": int(age),
+                    "flow_status": result.get("flow_status", "cancelled"),
+                    "answer": "【超时】操作已自动取消，请重新发起。",
+                    "intent": result.get("intent"),
+                }
+            except Exception as e:
+                return {"thread_id": thread_id, "status": "failed", "error": str(e)}
+
+    if not decision:
+        return {
+            "thread_id": thread_id,
+            "status": "waiting_decision",
+            "message": "请回复「同意」或「拒绝」",
+        }
 
     try:
         result = graph.invoke(Command(resume=decision), config=config)
@@ -156,16 +220,27 @@ async def resume_run(thread_id: str, request: Request):
         return {"thread_id": thread_id, "status": "failed", "error": str(e)}
 
 
+# ============================================================
+# /state
+# ============================================================
 @router.get("/{thread_id}/state")
 async def get_state(thread_id: str):
     config = {"configurable": {"thread_id": thread_id}}
     snapshot = graph.get_state(config)
     if not snapshot:
         return {"thread_id": thread_id, "exists": False}
+
+    settings = get_settings()
+    timeout_sec = getattr(settings, "hitl_timeout_seconds", 1800)
+    age = _hitl_age_seconds(snapshot) if snapshot.next else 0
+
     return {
         "thread_id": thread_id,
         "exists": True,
         "next": list(snapshot.next) if snapshot.next else [],
+        "is_interrupted": bool(snapshot.next),
+        "hitl_age_seconds": int(age),
+        "hitl_timeout_seconds": timeout_sec,
         "values": {
             "intent": snapshot.values.get("intent"),
             "flow_status": snapshot.values.get("flow_status"),

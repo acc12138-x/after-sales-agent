@@ -1,4 +1,4 @@
-"""生成节点：LLM 调用 + 多层输出后处理 + 问题类型过滤。"""
+"""生成节点：LLM 调用 + 多层输出后处理。"""
 from __future__ import annotations
 import re
 from typing import Dict, List
@@ -10,15 +10,11 @@ _LLM_CACHE = None
 
 THINK_BLOCK = re.compile(r"<think[^>]*>.*?</think[^>]*>", re.DOTALL | re.IGNORECASE)
 THINK_TAG = re.compile(r"</?think[^>]*>", re.IGNORECASE)
-
-# 剥 heading：直接匹配 [xxx] 开头（含或不含 >）
-HEADING_BRACKET_RE = re.compile(r"^\s*\[[^\]]{1,150}\]\s*")
-HEADING_BARE_RE = re.compile(r"^[^\[\]\n>]{1,60}\s*>\s*[^\[\]\n>]{1,60}\s*")
+PREFIX_RE = re.compile(r"^\s*\[[^\]]{1,80}\]\s*")
 
 TITLE_WORDS = [
     "适用范围", "排查步骤", "故障现象", "解决方法", "注意事项",
     "操作步骤", "问题描述", "原因分析", "处理建议", "参考来源",
-    "处理边界", "通用规则", "原因说明", "AI 与人工边界", "AI与人工边界",
 ]
 
 STOP_MARKERS = [
@@ -37,16 +33,24 @@ BRACKET_ACTION = re.compile(r"\[(检查|重启|更换|确认|排查|处理)[^\]]
 NO_INFO_KEYWORDS = ["暂无相关依据", "无法回答", "知识片段中没", "没有相关"]
 
 TERM_MAP = {
-    "temperature": "温度", "sensor": "传感器",
-    "device": "设备", "module": "模块", "board": "主板",
+    "temperature": "温度", "temp": "温度", "sensor": "传感器",
+    "device": "设备", "equipment": "设备", "module": "模块",
+    "board": "主板", "chip": "芯片", "motor": "电机",
     "battery": "电池", "fan": "风扇", "power": "电源",
+    "supply": "供电", "connector": "接口", "wire": "接线",
+    "cable": "线缆", "connection": "接线", "switch": "开关",
+    "button": "按钮", "display": "显示", "screen": "屏幕",
+    "panel": "面板", "light": "指示灯", "valve": "阀门",
+    "pump": "泵", "filter": "滤芯",
     "warning": "报警", "alert": "告警", "alarm": "报警",
     "error": "故障", "fault": "故障", "failure": "故障",
     "code": "代码", "issue": "问题", "problem": "问题",
     "abnormal": "异常", "normal": "正常", "broken": "损坏",
     "still": "仍然", "again": "再次",
-    "check": "检查", "restart": "重启", "reboot": "重启",
-    "replace": "更换", "reset": "复位",
+    "check": "检查", "inspect": "检查", "verify": "确认",
+    "restart": "重启", "reboot": "重启", "reset": "复位",
+    "replace": "更换", "change": "更换", "swap": "更换",
+    "clean": "清洁", "adjust": "调整", "calibrate": "校准",
     "step": "步骤", "solution": "解决方案", "cause": "原因",
 }
 
@@ -72,27 +76,33 @@ def _strip_think(text: str) -> str:
     return THINK_TAG.sub("", THINK_BLOCK.sub("", text))
 
 
-def _strip_one_heading(text: str) -> str:
-    """剥离一层 heading。"""
+def _strip_headings(text: str) -> str:
     if not text:
         return text
-    text = text.strip()
-    # 优先剥 [xxx]（含 [xxx > yyy]）
-    new = HEADING_BRACKET_RE.sub("", text).strip()
-    if new != text:
-        return new
-    # 再剥裸的 xxx > yyy
-    new = HEADING_BARE_RE.sub("", text).strip()
-    return new
-
-
-def _strip_all_headings(text: str) -> str:
-    for _ in range(5):
-        new = _strip_one_heading(text)
+    for _ in range(3):
+        new = PREFIX_RE.sub("", text).strip()
         if new == text:
             break
         text = new
-    return text
+    out_lines = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if re.match(r"^\d+\.?$", stripped) or re.match(r"^\[\d+\]$", stripped):
+            continue
+        hit = False
+        for tw in TITLE_WORDS:
+            if tw in line:
+                gt_idx = line.rfind(">", 0, line.find(tw))
+                if gt_idx > -1:
+                    after = line[line.find(tw) + len(tw):].strip()
+                    if after:
+                        out_lines.append(after)
+                    hit = True
+                    break
+        if hit:
+            continue
+        out_lines.append(line)
+    return "\n".join(out_lines)
 
 
 def _truncate_at_marker(text: str) -> str:
@@ -189,18 +199,10 @@ def _format_as_numbered_list(text: str) -> str:
     if len(parts) <= 1:
         return text
     out = []
-    seen = set()
-    for p in parts[:8]:
+    for p in parts[:6]:
         p = re.sub(r"^\s*[0-9]+[\.、\)]\s*", "", p).strip()
-        if not p:
-            continue
-        # 去重：前 20 字相同视为重复
-        key = p[:20]
-        if key in seen:
-            continue
-        seen.add(key)
-        out.append(p)
-
+        if p:
+            out.append(p)
     if len(out) <= 1:
         return text
     return "\n".join(f"{i}. {p}" for i, p in enumerate(out, 1))
@@ -210,7 +212,7 @@ def clean_answer(text: str) -> str:
     if not text:
         return text
     text = _strip_think(text)
-    text = _strip_all_headings(text)
+    text = _strip_headings(text)
     text = _truncate_at_marker(text)
     text = LEADING_NO_INFO.sub("", text)
     text = BRACKET_ACTION.sub("", text)
@@ -232,17 +234,24 @@ def clean_answer(text: str) -> str:
 
 
 # ============================================================
-# 引用替换：[1] -> [doc_id]
+# 引用替换：把 [1] [2] 换成 [doc_id]
 # ============================================================
 def _replace_citation_numbers(answer: str, chunks: List[Dict]) -> str:
+    """把答案里的 [1] [2] 替换为 [doc_id]。"""
     if not answer or not chunks:
         return answer
+
     mapping = {}
     for i, c in enumerate(chunks[:5], 1):
         meta = c.get("metadata", {}) or {}
         label = meta.get("doc_id") or meta.get("source") or str(i)
         mapping[str(i)] = label
-    return re.sub(r"\[(\d+)\]", lambda m: f"[{mapping.get(m.group(1), m.group(1))}]", answer)
+
+    def _repl(m):
+        num = m.group(1)
+        return f"[{mapping.get(num, num)}]"
+
+    return re.sub(r"\[(\d+)\]", _repl, answer)
 
 
 def _is_refusal(text: str) -> bool:
@@ -278,7 +287,7 @@ def get_llm():
         from langchain_openai import ChatOpenAI
         _LLM_CACHE = ChatOpenAI(
             model=model, api_key=s.llm_api_key or "sk-dummy",
-            base_url=base_url, temperature=0.1, timeout=120, max_tokens=2500,
+            base_url=base_url, temperature=0.1, timeout=60, max_tokens=600,
         )
     return _LLM_CACHE
 
@@ -289,70 +298,10 @@ def reset_llm_cache() -> None:
 
 
 # ============================================================
-# 问题类型识别 + chunk 过滤
+# Prompt + format_context（关键改动）
 # ============================================================
-STEP_KW = ["排查", "怎么处理", "怎么办", "怎么修", "维修", "操作步骤", "怎么解决", "如何处理", "处理流程", "处理步骤", "流程"]
-CAUSE_KW = ["原因", "为什么", "怎么回事", "为啥", "什么导致", "成因"]
-PHENOMENON_KW = ["现象", "表现", "会怎样", "会怎么样", "会有什么", "什么后果", "后果", "征兆", "症状", "什么反应"]
-BOUNDARY_KW = ["边界", "能做什么", "不能做什么", "可做", "不可做", "权限"]
-NOTICE_KW = ["注意事项", "注意什么", "注意哪些", "注意点", "要注意"]
-SCOPE_KW = ["适用范围", "哪些批次", "适用哪些", "哪些设备"]
-
-
-def _classify_question(question: str) -> str:
-    q = question or ""
-    if any(k in q for k in CAUSE_KW):
-        return "cause"
-    if any(k in q for k in PHENOMENON_KW):
-        return "phenomenon"
-    if any(k in q for k in BOUNDARY_KW):
-        return "boundary"
-    if any(k in q for k in NOTICE_KW):
-        return "notice"
-    if any(k in q for k in SCOPE_KW):
-        return "scope"
-    if any(k in q for k in STEP_KW):
-        return "step"
-    return "generic"
-
-
-# 问题类型 -> 目标 heading 关键词
-TYPE_TO_HEADING = {
-    "step":       ["排查步骤", "步骤", "解决", "处理步骤"],
-    "cause":      ["原因", "分析", "成因"],
-    "phenomenon": ["故障现象", "现象", "表现", "后果"],
-    "boundary":   ["处理边界", "边界", "AI 与人工", "AI与人工"],
-    "notice":     ["注意事项", "注意", "通用规则"],
-    "scope":      ["适用范围", "范围"],
-}
-
-
-def _filter_chunks(chunks: List[Dict], qtype: str) -> List[Dict]:
-    """按问题类型过滤 chunks。没匹配返回空列表。"""
-    if qtype == "generic":
-        return list(chunks)
-
-    want = TYPE_TO_HEADING.get(qtype, [])
-    if not want:
-        return list(chunks)
-
-    out = []
-    for c in chunks:
-        meta = c.get("metadata", {}) or {}
-        heading = meta.get("heading_path") or ""
-        for w in want:
-            if w in heading:
-                out.append(c)
-                break
-
-    return out
-
-
-# ============================================================
-# Prompt 模板
-# ============================================================
-PROMPT_STEP = """你是企业售后助手。用户问的是【怎么处理/排查/怎么办】。
-**只从知识片段中提取【排查步骤/解决方法/操作步骤】的内容回答。**
+# 按问题类型分模板
+PROMPT_STEP = """你是企业售后助手。用户问的是【怎么处理/排查/怎么办】，请从知识片段中提取【排查步骤/解决方法/操作步骤】类内容回答。
 
 【知识片段】
 {context}
@@ -361,25 +310,21 @@ PROMPT_STEP = """你是企业售后助手。用户问的是【怎么处理/排�
 {question}
 
 【输出格式】
-1. 第1步
-2. 第2步
-3. 第3步
+1. 第1步操作
+2. 第2步操作
+3. 第3步操作
 
 【硬性约束】
-- 每步一行，数字+英文句点开头
-- 只输出操作步骤，不要复述故障现象
+- 每步一行，数字+英文句点开头（1. 2. 3.）
 - 禁止输出章节标题
-- 引用 [1] 紧贴句号前
-- 中文简体，120 字内
-
-- **只要知识片段里有相关内容，就必须回答，不要拒答**
-
-**直接输出最终答案，不要复述问题，不要分析过程。**
+- 只输出操作步骤，不要复述故障现象
+- 引用编号 [1] 紧贴在相关句子句号前
+- 中文简体，120 字以内
+- 无法回答时只回复：暂无相关依据
 
 【回答】"""
 
-PROMPT_CAUSE = """你是企业售后助手。用户问的是【什么原因/为什么/怎么回事】。
-**只从知识片段中提取【原因说明/原因分析/成因】的内容回答。如果片段里没有"原因"相关内容，直接回复：暂无相关依据。**
+PROMPT_CAUSE = """你是企业售后助手。用户问的是【什么原因/为什么/怎么回事】，请从知识片段中提取【原因说明/原因分析/成因】类内容回答。
 
 【知识片段】
 {context}
@@ -392,19 +337,16 @@ PROMPT_CAUSE = """你是企业售后助手。用户问的是【什么原因/为�
 2. 第2条原因
 
 【硬性约束】
-- 只讲原因，禁止给操作步骤
+- 每条一行，数字+英文句点开头
 - 禁止输出章节标题
-- 引用 [1] 紧贴句号前
-- 中文简体，120 字内
-
-- **只要知识片段里有相关内容，就必须回答，不要拒答**
-
-**直接输出最终答案，不要复述问题，不要分析过程。**
+- 只讲原因，不要给操作步骤
+- 引用编号 [1] 紧贴在相关句子句号前
+- 中文简体，120 字以内
+- 无法回答时只回复：暂无相关依据
 
 【回答】"""
 
-PROMPT_PHENOMENON = """你是企业售后助手。用户问的是【什么现象/会怎样/会有什么表现】。
-从知识片段中提取描述故障现象、后果、表现的内容，直接复述给用户。
+PROMPT_PHENOMENON = """你是企业售后助手。用户问的是【什么现象/会怎样/会有什么表现】，请从知识片段中提取【故障现象/表现/后果】类内容回答。
 
 【知识片段】
 {context}
@@ -413,93 +355,16 @@ PROMPT_PHENOMENON = """你是企业售后助手。用户问的是【什么现象
 {question}
 
 【输出格式】
-1. 第1条现象
-2. 第2条现象
+1. 第1条现象或后果
+2. 第2条现象或后果
 
 【硬性约束】
-- **只要知识片段里有任何现象描述，就必须输出，禁止回复"暂无相关依据"**
+- 每条一行，数字+英文句点开头
+- 禁止输出章节标题
 - 只描述现象/后果，不要给操作步骤
-- 禁止输出章节标题
-- 引用 [1] 紧贴句号前
-- 中文简体，150 字内
-
-- **只要知识片段里有相关内容，就必须回答，不要拒答**
-
-**直接输出最终答案，不要复述问题，不要分析过程。**
-
-【回答】"""
-
-PROMPT_BOUNDARY = """你是企业售后助手。用户问的是【AI 能做什么/不能做什么/权限边界】。
-从知识片段中提取【处理边界/AI 与人工边界】相关内容回答。
-
-【知识片段】
-{context}
-
-【用户问题】
-{question}
-
-【输出格式】
-1. AI 可做：...
-2. AI 不可做：...
-
-【硬性约束】
-- 只讲边界，禁止给操作步骤
-- 禁止输出章节标题
-- 引用 [1] 紧贴句号前
-- 中文简体，120 字内
-
-- **只要知识片段里有相关内容，就必须回答，不要拒答**
-
-**直接输出最终答案，不要复述问题，不要分析过程。**
-
-【回答】"""
-
-PROMPT_NOTICE = """你是企业售后助手。用户问的是【注意事项/安全】。
-从知识片段中提取【注意事项/通用规则】相关内容回答。
-
-【知识片段】
-{context}
-
-【用户问题】
-{question}
-
-【输出格式】
-1. 第1条
-2. 第2条
-
-【硬性约束】
-- 只讲注意事项，禁止给完整排查步骤
-- 禁止输出章节标题
-- 引用 [1] 紧贴句号前
-- 中文简体，120 字内
-
-- **只要知识片段里有相关内容，就必须回答，不要拒答**
-
-**直接输出最终答案，不要复述问题，不要分析过程。**
-
-【回答】"""
-
-PROMPT_SCOPE = """你是企业售后助手。用户问的是【适用范围/哪些批次/哪些设备】。
-从知识片段中提取【适用范围】相关内容回答。
-
-【知识片段】
-{context}
-
-【用户问题】
-{question}
-
-【输出格式】
-1. 适用：...
-
-【硬性约束】
-- 只讲范围，不要给步骤
-- 禁止输出章节标题
-- 引用 [1] 紧贴句号前
-- 中文简体，100 字内
-
-- **只要知识片段里有相关内容，就必须回答，不要拒答**
-
-**直接输出最终答案，不要复述问题，不要分析过程。**
+- 引用编号 [1] 紧贴在相关句子句号前
+- 中文简体，120 字以内
+- 无法回答时只回复：暂无相关依据
 
 【回答】"""
 
@@ -519,85 +384,97 @@ PROMPT_GENERIC = """你是企业售后助手。根据知识片段回答用户问
 【硬性约束】
 - 每行数字+英文句点开头
 - 禁止输出章节标题
-- 引用 [1] 紧贴句号前
-- 中文简体，120 字内
-
-- **只要知识片段里有相关内容，就必须回答，不要拒答**
-
-**直接输出最终答案，不要复述问题，不要分析过程。**
+- 引用编号 [1] 紧贴句号前
+- 中文简体，120 字以内
+- 无法回答时只回复：暂无相关依据
 
 【回答】"""
 
 
-_PROMPT_MAP = {
-    "step":       PROMPT_STEP,
-    "cause":      PROMPT_CAUSE,
-    "phenomenon": PROMPT_PHENOMENON,
-    "boundary":   PROMPT_BOUNDARY,
-    "notice":     PROMPT_NOTICE,
-    "scope":      PROMPT_SCOPE,
-    "generic":    PROMPT_GENERIC,
-}
+# 问题类型识别
+STEP_KEYWORDS = ["排查", "处理", "怎么办", "怎么修", "维修", "操作", "步骤", "流程", "怎么解决", "如何处理"]
+CAUSE_KEYWORDS = ["原因", "为什么", "怎么回事", "为啥", "为什么会", "什么导致"]
+PHENOMENON_KEYWORDS = ["现象", "表现", "会怎样", "会怎么样", "会有什么", "什么后果", "后果", "征兆", "症状"]
 
 
 def _pick_prompt(question: str) -> str:
-    return _PROMPT_MAP.get(_classify_question(question), PROMPT_GENERIC)
+    """根据问题类型选 prompt 模板。"""
+    q = question or ""
+    # 优先级：原因 > 现象 > 步骤 > 通用
+    for kw in CAUSE_KEYWORDS:
+        if kw in q:
+            return PROMPT_CAUSE
+    for kw in PHENOMENON_KEYWORDS:
+        if kw in q:
+            return PROMPT_PHENOMENON
+    for kw in STEP_KEYWORDS:
+        if kw in q:
+            return PROMPT_STEP
+    return PROMPT_GENERIC
 
 
 def format_context(chunks: List[Dict], max_chunks: int = 5) -> str:
+    """把候选 chunks 拼成上下文。关键：
+    - 去重（父块/子块内容高度相似时只保留一个）
+    - 最多 5 条（原为 3，导致"排查步骤"被挤掉）
+    - 去 heading 前缀
+    """
     lines = []
     seen_keys = set()
     for c in chunks:
         if len(lines) >= max_chunks:
             break
-        text = (c.get("text") or "").strip().replace("\n", " ")
-        text = _strip_all_headings(text)
-        # 去重键：用前 100 字（原 60 太短，不同 chunk 会被误判重复）
-        key = text[:100]
+        text = c.get("text", "").strip().replace("\n", " ")
+        # 去 [xxx] 前缀
+        for _ in range(3):
+            new = PREFIX_RE.sub("", text).strip()
+            if new == text:
+                break
+            text = new
+        # 去 "xxx > yyy" 前缀
+        for tw in TITLE_WORDS:
+            if tw in text and ">" in text:
+                idx = text.find(tw)
+                gt_idx = text.rfind(">", 0, idx)
+                if gt_idx > -1:
+                    text = text[idx + len(tw):].strip()
+                    break
+        # 去重：前 60 字符相同视为重复
+        key = text[:60]
         if key in seen_keys:
             continue
         seen_keys.add(key)
         i = len(lines) + 1
-        lines.append(f"[{i}] {text[:280]}")
+        lines.append(f"[{i}] {text[:220]}")
     return "\n".join(lines)
 
 
 def _fallback_from_chunks(chunks: List[Dict]) -> str:
-    """兜底：优先找步骤，其次拼前几条不重复的。"""
     if not chunks:
         return "暂无相关依据，建议转人工。"
-
-    # 优先选含步骤关键词的
     for c in chunks:
-        text = (c.get("text") or "").strip().replace("\n", " ")
-        text = _strip_all_headings(text)
-        if any(kw in text for kw in ("排查", "步骤", "检查", "操作")):
-            return f"{text[:200].rstrip()} [1]"
-
-    # 否则：拼接前 2 条不重复的内容
-    seen = set()
-    parts = []
-    for c in chunks:
-        text = (c.get("text") or "").strip().replace("\n", " ")
-        text = _strip_all_headings(text)
-        key = text[:40]
-        if key in seen:
-            continue
-        seen.add(key)
-        if text:
-            parts.append(text[:150].rstrip())
-        if len(parts) >= 2:
-            break
-
-    if parts:
-        return "  ".join(parts) + " [1]"
-    return "暂无相关依据，建议转人工。"
+        text = c.get("text", "").strip().replace("\n", " ")
+        for _ in range(3):
+            new = PREFIX_RE.sub("", text).strip()
+            if new == text:
+                break
+            text = new
+        for tw in TITLE_WORDS:
+            if tw in text and ">" in text:
+                idx = text.find(tw)
+                gt_idx = text.rfind(">", 0, idx)
+                if gt_idx > -1:
+                    text = text[idx + len(tw):].strip()
+                    break
+        if "排查" in text or "步骤" in text or "检查" in text:
+            return f"{text[:150].rstrip()} [1]"
+    text = chunks[0].get("text", "").strip().replace("\n", " ")
+    return f"{text[:150].rstrip()} [1]"
 
 
 def generate_node(state: AgentState) -> AgentState:
     chunks = state.get("retrieved", []) or []
     question = state.get("user_input", "")
-    trace = state.get("trace_id", "?")[:8]
 
     if not chunks or state.get("flow_status") == "rejected":
         return {
@@ -607,33 +484,8 @@ def generate_node(state: AgentState) -> AgentState:
             "flow_status": "rejected",
         }
 
-    # 分类 + 过滤
-    qtype = _classify_question(question)
-    filtered = _filter_chunks(chunks, qtype)
-
-    # 精准拒答：qtype 明确但库里没这类内容
-    if not filtered and qtype not in ("generic",):
-        print(f"[GEN:{trace}] filter miss (qtype={qtype}), reject. chunks={len(chunks)}")
-        return {
-            **state,
-            "answer": f"暂无相关依据。您问的{'原因' if qtype == 'cause' else '这类内容'}知识库里没有记录。",
-            "citations": [],
-            "flow_status": "rejected",
-        }
-
-    # qtype=generic 或 filter 成功
-    if not filtered:
-        print(f"[GEN:{trace}] qtype=generic, chunks={len(chunks)}")
-        filtered = list(chunks)
-        actual_type = "generic"
-    else:
-        actual_type = qtype
-
-    print(f"[GEN:{trace}] qtype={qtype}, actual_type={actual_type}, filtered={len(filtered)}")
-    context = format_context(filtered, max_chunks=5)
-    prompt = _PROMPT_MAP.get(actual_type, PROMPT_GENERIC).format(
-        context=context, question=question
-    )
+    context = format_context(chunks, max_chunks=5)
+    prompt = _pick_prompt(question).format(context=context, question=question)
 
     answer = ""
     try:
@@ -644,16 +496,14 @@ def generate_node(state: AgentState) -> AgentState:
         answer = f"生成失败：{e}"
 
     if _is_refusal(answer):
-        print(f"[GEN:{trace}] refusal detected, raw={answer[:120]!r}")
-        fallback = _fallback_from_chunks(filtered)
-        print(f"[GEN:{trace}] fallback result={fallback[:120]!r}")
-        answer = clean_answer(fallback)
+        answer = clean_answer(_fallback_from_chunks(chunks))
 
-    answer = _replace_citation_numbers(answer, filtered)
+    # 引用替换：[1] -> [doc-e102-v6]
+    answer = _replace_citation_numbers(answer, chunks)
 
     citations = [
         {"index": i + 1, "chunk_id": c["chunk_id"], "source": c["metadata"].get("source", "")}
-        for i, c in enumerate(filtered[:3])
+        for i, c in enumerate(chunks[:3])
     ]
 
     messages = state.get("messages", []) or []

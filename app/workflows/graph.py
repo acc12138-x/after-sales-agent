@@ -1,7 +1,10 @@
-from __future__ import annotations
+﻿from __future__ import annotations
+
+import sqlite3
+from pathlib import Path
 
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 
 from app.workflows.state import AgentState
 from app.workflows.nodes.intent import intent_node
@@ -18,15 +21,15 @@ from app.workflows.nodes.action_exec import action_exec_node
 from app.workflows.nodes.refund_apply import refund_apply_node
 
 
-# 走规则引擎的意图（需要匹配售后规则）
-RULE_INTENTS = {"return", "exchange", "refund", "warranty"}
-# 查询类意图
+RULE_INTENTS = {"return", "exchange", "warranty", "repair"}
 QUERY_INTENTS = {"order_query", "logistics", "customer_query"}
+REFUND_INTENTS = {"refund_apply", "compensation"}
+HITL_DIRECT_INTENTS = {"human", "complaint"}
 
 
 def route_after_intent(state: AgentState) -> str:
     intent = state.get("intent", "qa")
-    if intent == "human":
+    if intent in HITL_DIRECT_INTENTS:
         return "hitl_gate"
     return "slot_filling"
 
@@ -43,10 +46,8 @@ def route_after_slot(state: AgentState) -> str:
         return "context_collect"
     if intent == "ticket":
         return "ticket_node"
-    if intent in ("refund_apply", "compensation"):
+    if intent in REFUND_INTENTS:
         return "refund_apply"
-    if intent == "repair":
-        return "rag_search"
     return "rag_search"
 
 
@@ -127,5 +128,13 @@ def build_graph():
     return g
 
 
-memory = MemorySaver()
+# ============================================================
+# Checkpointer：SQLite 持久化（跨进程、跨重启保留中断状态）
+# ============================================================
+_DB_PATH = Path(__file__).resolve().parents[2] / "data" / "checkpoints.db"
+_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+_conn = sqlite3.connect(str(_DB_PATH), check_same_thread=False)
+memory = SqliteSaver(_conn)
+
 graph = build_graph().compile(checkpointer=memory)

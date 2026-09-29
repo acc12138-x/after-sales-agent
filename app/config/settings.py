@@ -1,4 +1,4 @@
-from functools import lru_cache
+﻿from functools import lru_cache
 import os
 
 os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost,::1")
@@ -22,36 +22,32 @@ class Settings(BaseSettings):
     log_level: str = "DEBUG"
 
     # ============================================================
-    # LLM（通用 OpenAI 兼容）
-    # ============================================================
-    # provider 标识：ollama_native / deepseek / dashscope_llm / ...
-    # - ollama_native 走 langchain-ollama
-    # - 其他都走 OpenAI 兼容接口
+    # LLM锛堥€氱敤 OpenAI 鍏煎锛?    # ============================================================
+    # provider 鏍囪瘑锛歰llama_native / deepseek / dashscope_llm / ...
+    # - ollama_native 璧?langchain-ollama
+    # - 鍏朵粬閮借蛋 OpenAI 鍏煎鎺ュ彛
     llm_provider: str = "ollama_native"
     llm_base_url: str = "http://127.0.0.1:11434"
     llm_model: str = "qwen2.5-1.5b:latest"
     llm_api_key: str = ""
 
     # ============================================================
-    # Embedding（通用 OpenAI 兼容）
-    # ============================================================
+    # Embedding锛堥€氱敤 OpenAI 鍏煎锛?    # ============================================================
     embedding_provider: str = "ollama_native"
     embedding_base_url: str = "http://127.0.0.1:11434"
     embedding_model: str = "bge-m3:latest"
     embedding_api_key: str = ""
 
     # ============================================================
-    # Ollama 原生模式专用（兼容保留）
+    # Ollama 鍘熺敓妯″紡涓撶敤锛堝吋瀹逛繚鐣欙級
     # ============================================================
     ollama_base_url: str = "http://127.0.0.1:11434"
     ollama_llm_model: str = "qwen2.5-1.5b:latest"
     ollama_embedding_model: str = "bge-m3:latest"
 
     # ============================================================
-    # Chroma 向量库
-    # ============================================================
-    # embedded: 本地持久化目录
-    # http:     连接 Chroma 服务
+    # Chroma 鍚戦噺搴?    # ============================================================
+    # embedded: 鏈湴鎸佷箙鍖栫洰褰?    # http:     杩炴帴 Chroma 鏈嶅姟
     chroma_mode: str = "embedded"
     chroma_host: str = "127.0.0.1"
     chroma_port: int = 8001
@@ -66,10 +62,9 @@ class Settings(BaseSettings):
     top_k_retrieve: int = 20
     top_k_rerank: int = 5
     rrf_k: int = 60
-    # 相关性阈值：重排后最高分低于此值 -> 判定为"无相关知识"
+    # 鐩稿叧鎬ч槇鍊硷細閲嶆帓鍚庢渶楂樺垎浣庝簬姝ゅ€?-> 鍒ゅ畾涓?鏃犵浉鍏崇煡璇?
     min_relevance_score: float = 0.55
-    # 余弦相似度阈值：向量召回的原始分数下限
-    min_vector_score: float = 0.3
+    # 浣欏鸡鐩镐技搴﹂槇鍊硷細鍚戦噺鍙洖鐨勫師濮嬪垎鏁颁笅闄?    min_vector_score: float = 0.3
 
     # ============================================================
     # Redis
@@ -88,7 +83,7 @@ class Settings(BaseSettings):
     mysql_database: str = "after_sales_agent"
 
     # ============================================================
-    # OpenClaw 网关
+    # OpenClaw 缃戝叧
     # ============================================================
     openclaw_enabled: bool = True
     openclaw_gateway_url: str = "http://127.0.0.1:18000"
@@ -96,10 +91,13 @@ class Settings(BaseSettings):
     openclaw_feishu_app_id: str = ""
     openclaw_feishu_app_secret: str = ""
 
-    # 兼容旧字段
+    # 鍏煎鏃у瓧娈?    # HITL 超时（秒）
+    hitl_timeout_seconds: int = 1800
+
     llm_router_mode: str = "hybrid"
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
