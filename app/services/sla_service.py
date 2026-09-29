@@ -121,31 +121,34 @@ def _notify_sla(ticket: Ticket, new_status: str) -> None:
 
         if new_status == "warning":
             content = (
-                f"工单 {ticket.ticket_id} 即将超时\n"
-                f"设备：{ticket.device_model or '-'} 故障码：{ticket.error_code or '-'}\n"
-                f"截止：{ticket.sla_deadline}\n"
-                f"请尽快处理。"
+                f"设备：{ticket.device_model or '-'} 故障码：{ticket.error_code or '-'} "
+                f"截止：{ticket.sla_deadline} 请尽快处理。"
             )
+            # 多群路由
+            if route_dispatch:
+                route_dispatch("sla_warning",
+                               f"🟠 SLA 预警 - {ticket.ticket_id}", content)
+            # 同时私聊工程师
             notify(
                 target=feishu_id or target,
                 event="sla_warning",
                 title=f"🟠 SLA 预警 - {ticket.ticket_id}",
-                content=content,
+                content=f"工单 {ticket.ticket_id} {content}",
                 channel="feishu",
             )
         elif new_status == "overdue":
             content = (
-                f"工单 {ticket.ticket_id} 已超时\n"
-                f"设备：{ticket.device_model or '-'} 故障码：{ticket.error_code or '-'}\n"
-                f"截止：{ticket.sla_deadline}\n"
-                f"负责人：{target}\n"
-                f"请立即处理或改派。"
+                f"设备：{ticket.device_model or '-'} 故障码：{ticket.error_code or '-'} "
+                f"截止：{ticket.sla_deadline} 负责人：{target} 请立即处理或改派。"
             )
+            if route_dispatch:
+                route_dispatch("sla_overdue",
+                               f"🔴 SLA 超时 - {ticket.ticket_id}", content)
             notify(
                 target=feishu_id or target,
                 event="sla_overdue",
                 title=f"🔴 SLA 超时 - {ticket.ticket_id}",
-                content=content,
+                content=f"工单 {ticket.ticket_id} {content}",
                 channel="feishu",
             )
             # 同时通知所有主管

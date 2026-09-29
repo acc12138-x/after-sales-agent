@@ -1,0 +1,45 @@
+# 飞书群路由配置
+# 每个群配 webhook URL，事件按路由表分发
+# webhook 为空时只记通知表，不发飞书（开发模式）
+
+channels:
+  # 工程师群
+  engineer_group:
+    label: "售后工程师群"
+    webhook: ""           # 填真实 webhook 后生效
+    at_all: false
+
+  # 主管群
+  supervisor_group:
+    label: "售后主管群"
+    webhook: ""
+    at_all: true
+
+  # SLA 预警群
+  sla_group:
+    label: "SLA 预警群"
+    webhook: ""
+    at_all: false
+
+  # 客户端
+  customer_channel:
+    label: "客户端"
+    webhook: ""
+    at_all: false
+
+# 事件 → 群映射
+routes:
+  ticket_assigned:        ["engineer_group"]           # 新工单派给工程师
+  ticket_accepted:        ["engineer_group"]
+  ticket_rejected:        ["engineer_group"]           # 拒单通知群里
+  ticket_resolved:        ["supervisor_group"]         # 完成待主管审批
+  ticket_escalated:       ["supervisor_group"]         # 升级到主管
+
+  refund_created:         ["supervisor_group"]
+  refund_pending:         ["supervisor_group"]         # 待审批
+  refund_approved:        ["customer_channel"]         # 通过通知客户
+  refund_rejected:        ["customer_channel"]
+
+  sla_warning:            ["sla_group"]                # 预警
+  sla_overdue:            ["sla_group", "supervisor_group"]
+  sla_overdue_supervisor: ["supervisor_group"]

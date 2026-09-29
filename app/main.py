@@ -74,6 +74,19 @@ app.include_router(refunds.router)
 app.include_router(sla.router)
 
 
+@app.get("/feishu/config")
+async def feishu_config():
+    from app.services.feishu_router import list_config
+    return list_config()
+
+
+@app.post("/feishu/test")
+async def feishu_test(event: str = "sla_overdue"):
+    """测试某事件的群路由。"""
+    from app.services.feishu_router import dispatch
+    return dispatch(event, f"测试事件 {event}", "这是一条测试消息")
+
+
 @app.get("/cache/stats")
 async def cache_stats():
     from app.services.cache_service import get_cache
