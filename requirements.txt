@@ -70,3 +70,6 @@ mypy==2.3.1
 pre-commit==4.6.2
 
 langgraph-checkpoint-sqlite>=2.0.0
+
+# ---------- 认证 ----------
+PyJWT>=2.8.0

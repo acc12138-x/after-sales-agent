@@ -75,6 +75,26 @@
           </template>
         </el-table-column>
 
+        <el-table-column label="SLA" width="140">
+          <template #default="{ row }">
+            <div v-if="row.sla_status" class="sla-cell" :class="row.sla_status">
+              <span class="sla-icon">{{ slaIcon(row.sla_status) }}</span>
+              <span class="sla-text">{{ slaText(row) }}</span>
+            </div>
+            <span v-else style="color:#9ca3af;">-</span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="SLA" width="140">
+          <template #default="{ row }">
+            <div v-if="row.sla_status" class="sla-cell" :class="row.sla_status">
+              <span class="sla-icon">{{ slaIcon(row.sla_status) }}</span>
+              <span class="sla-text">{{ slaText(row) }}</span>
+            </div>
+            <span v-else style="color:#9ca3af;">-</span>
+          </template>
+        </el-table-column>
+
         <el-table-column prop="assigned_to" label="工程师" width="100" />
         <el-table-column label="派单次数" width="90" align="center">
           <template #default="{ row }">
@@ -319,6 +339,38 @@ function slaText(row) {
   return `${prefix}${m}m`;
 }
 
+function slaIcon(s) {
+  return { normal: "🟢", warning: "🟠", overdue: "🔴" }[s] || "⚪";
+}
+
+function slaText(row) {
+  const sec = row.remain_seconds;
+  if (sec === null || sec === undefined) return "-";
+  const abs = Math.abs(sec);
+  const h = Math.floor(abs / 3600);
+  const m = Math.floor((abs % 3600) / 60);
+  const prefix = sec < 0 ? "超时 " : "剩 ";
+  if (h >= 24) return `${prefix}${Math.floor(h/24)}d ${h%24}h`;
+  if (h > 0) return `${prefix}${h}h ${m}m`;
+  return `${prefix}${m}m`;
+}
+
+function slaIcon(s) {
+  return { normal: "🟢", warning: "🟠", overdue: "🔴" }[s] || "⚪";
+}
+
+function slaText(row) {
+  const sec = row.remain_seconds;
+  if (sec === null || sec === undefined) return "-";
+  const abs = Math.abs(sec);
+  const h = Math.floor(abs / 3600);
+  const m = Math.floor((abs % 3600) / 60);
+  const prefix = sec < 0 ? "超时 " : "剩 ";
+  if (h >= 24) return `${prefix}${Math.floor(h/24)}d ${h%24}h`;
+  if (h > 0) return `${prefix}${h}h ${m}m`;
+  return `${prefix}${m}m`;
+}
+
 async function load() {
   loading.value = true;
   try {
@@ -476,6 +528,26 @@ onMounted(load);
 .tl-item.done { border-left-color: #4f46e5; color: #111827; }
 .tl-label { font-size: 13px; font-weight: 600; }
 .tl-time { font-size: 11px; margin-top: 2px; }
+
+.sla-cell {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 6px; border-radius: 4px;
+  font-size: 12px; font-weight: 500;
+}
+.sla-cell.normal { background: #f0fdf4; color: #16a34a; }
+.sla-cell.warning { background: #fffbeb; color: #d97706; }
+.sla-cell.overdue { background: #fef2f2; color: #dc2626; }
+.sla-icon { font-size: 14px; }
+
+.sla-cell {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 6px; border-radius: 4px;
+  font-size: 12px; font-weight: 500;
+}
+.sla-cell.normal { background: #f0fdf4; color: #16a34a; }
+.sla-cell.warning { background: #fffbeb; color: #d97706; }
+.sla-cell.overdue { background: #fef2f2; color: #dc2626; }
+.sla-icon { font-size: 14px; }
 
 .sla-cell {
   display: flex; align-items: center; gap: 4px;

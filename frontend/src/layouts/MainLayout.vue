@@ -10,24 +10,30 @@
       </div>
 
       <el-menu :default-active="$route.path" router class="menu">
-        <el-menu-item index="/chat"><el-icon><ChatDotRound /></el-icon>对话测试</el-menu-item>
-        <el-menu-item index="/knowledge"><el-icon><Collection /></el-icon>知识库</el-menu-item>
-        <el-menu-item index="/tickets"><el-icon><Tickets /></el-icon>工单</el-menu-item>
-        <el-menu-item index="/customers"><el-icon><UserFilled /></el-icon>客户资产</el-menu-item>
-        <el-menu-item index="/refunds"><el-icon><Money /></el-icon>退款管理</el-menu-item>
-        <el-menu-item index="/sla"><el-icon><AlarmClock /></el-icon>SLA时效</el-menu-item>
-        <el-menu-item index="/engineers"><el-icon><User /></el-icon>工程师</el-menu-item>
-        <el-menu-item index="/people"><el-icon><UserFilled /></el-icon>人员管理</el-menu-item>
-        <el-menu-item index="/audit"><el-icon><Document /></el-icon>审计日志</el-menu-item>
-        <el-menu-item index="/notifications"><el-icon><Bell /></el-icon>通知记录</el-menu-item>
-        <el-menu-item index="/config"><el-icon><Setting /></el-icon>系统配置</el-menu-item>
-        <el-menu-item index="/monitor"><el-icon><DataLine /></el-icon>监控看板</el-menu-item>
+        <el-menu-item
+          v-for="item in menus"
+          :key="item.path"
+          :index="item.path"
+          v-show="hasPerm(item.perm)"
+        >
+          <el-icon><component :is="item.icon" /></el-icon>
+          {{ item.label }}
+        </el-menu-item>
       </el-menu>
 
       <div class="footer">
-        <el-tag :type="online ? 'success' : 'danger'" effect="light">
-          {{ online ? "🟢 后端在线" : "🔴 后端离线" }}
-        </el-tag>
+        <div v-if="user" class="user-info">
+          <el-avatar :size="28" :style="{ background: roleColor(user.role) }">
+            {{ (user.name || "?").charAt(0) }}
+          </el-avatar>
+          <div class="user-detail">
+            <div class="user-name">{{ user.name }}</div>
+            <div class="user-role">{{ user.role_label }}</div>
+          </div>
+          <el-button size="small" link @click="doLogout" title="退出">
+            <el-icon><SwitchButton /></el-icon>
+          </el-button>
+        </div>
       </div>
     </el-aside>
 
@@ -43,15 +49,71 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from "vue";
-import axios from "axios";
+import { ref, computed, onMounted } from "vue";
+import { useRouter } from "vue-router";
+import { ElMessageBox, ElMessage } from "element-plus";
+import {
+  Tools, ChatDotRound, Collection, Tickets, UserFilled, Money,
+  AlarmClock, User, Document, Bell, Setting, DataLine, SwitchButton,
+} from "@element-plus/icons-vue";
+import api from "../api";
 
-const online = ref(false);
-onMounted(async () => {
+const router = useRouter();
+const user = ref(null);
+
+const MENUS = [
+  { path: "/chat",          label: "对话测试",  icon: ChatDotRound },
+  { path: "/knowledge",     label: "知识库",    icon: Collection },
+  { path: "/tickets",       label: "工单",      icon: Tickets },
+  { path: "/customers",     label: "客户资产",  icon: UserFilled },
+  { path: "/refunds",       label: "退款管理",  icon: Money,       perm: "refund.view" },
+  { path: "/sla",           label: "SLA时效",   icon: AlarmClock },
+  { path: "/engineers",     label: "工程师",    icon: User,        perm: "user.view" },
+  { path: "/people",        label: "人员管理",  icon: UserFilled,  perm: "user.view" },
+  { path: "/audit",         label: "审计日志",  icon: Document,    perm: "audit.view" },
+  { path: "/notifications", label: "通知记录",  icon: Bell },
+  { path: "/config",        label: "系统配置",  icon: Setting,     perm: "sla.edit" },
+  { path: "/monitor",       label: "监控看板",  icon: DataLine },
+];
+
+const menus = MENUS;
+
+const perms = computed(() => (user.value && user.value.effective_permissions) || []);
+const isAdmin = computed(() => perms.value.includes("*"));
+
+function hasPerm(p) {
+  if (!p) return true;
+  if (isAdmin.value) return true;
+  return perms.value.includes(p);
+}
+
+function roleColor(r) {
+  return { admin: "#ef4444", supervisor: "#f59e0b", engineer: "#4f46e5", agent: "#22c55e" }[r] || "#9ca3af";
+}
+
+async function doLogout() {
   try {
-    await axios.get("/api/health", { timeout: 3000 });
-    online.value = true;
-  } catch { online.value = false; }
+    await ElMessageBox.confirm("确定退出登录？", "提示", { type: "warning" });
+  } catch { return; }
+  try { await api.logout(); } catch (e) {}
+  localStorage.removeItem("auth_token");
+  localStorage.removeItem("auth_user");
+  ElMessage.success("已退出");
+  router.push("/login");
+}
+
+onMounted(async () => {
+  const cached = localStorage.getItem("auth_user");
+  if (cached) {
+    try { user.value = JSON.parse(cached); } catch (e) {}
+  }
+  try {
+    const me = await api.me();
+    user.value = me;
+    localStorage.setItem("auth_user", JSON.stringify(me));
+  } catch (e) {
+    router.push("/login");
+  }
 });
 </script>
 
@@ -69,14 +131,19 @@ onMounted(async () => {
 .logo-title { font-weight: 700; font-size: 16px; }
 .logo-sub { font-size: 11px; color: #6b7280; }
 .menu { border: none; background: transparent; flex: 1; overflow-y: auto; }
-.menu .el-menu-item {
-  margin: 4px 10px; border-radius: 8px;
-}
+.menu .el-menu-item { margin: 4px 10px; border-radius: 8px; }
 .menu .el-menu-item.is-active {
   background: linear-gradient(135deg, #4f46e5, #7c3aed);
   color: white;
 }
-.footer { padding: 15px; text-align: center; }
+.footer { padding: 12px 16px; border-top: 1px solid #e5e7eb; }
+.user-info { display: flex; align-items: center; gap: 10px; }
+.user-detail { flex: 1; min-width: 0; }
+.user-name {
+  font-size: 13px; font-weight: 600; color: #111827;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.user-role { font-size: 11px; color: #6b7280; }
 .topbar {
   background: white; border-bottom: 1px solid #e5e7eb;
   display: flex; align-items: center; padding: 0 24px;

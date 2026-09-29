@@ -94,6 +94,15 @@ class Settings(BaseSettings):
     # 鍏煎鏃у瓧娈?    # HITL 超时（秒）
     hitl_timeout_seconds: int = 1800
 
+    # ============================================================
+    # JWT
+    # ============================================================
+    # 数据库模式：mysql / sqlite
+    db_mode: str = "sqlite"
+
+    jwt_secret: str = "CHANGE_ME_IN_ENV"
+    jwt_expire_hours: int = 168
+
     llm_router_mode: str = "hybrid"
 
 

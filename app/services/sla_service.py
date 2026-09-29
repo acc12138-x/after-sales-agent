@@ -7,6 +7,8 @@ from typing import Dict, Optional
 
 import yaml
 
+from sqlalchemy import case, select
+
 from app.db.models.ticket import Ticket
 from app.db.session import session_scope
 
@@ -22,15 +24,13 @@ def load_rules() -> Dict:
 
 
 def write_rules(rules: Dict) -> None:
-    """回写 sla_rules.yaml。保留注释、保留顺序（尽量）。"""
+    """回写 sla_rules.yaml。"""
     import shutil as _sh
+    import yaml as _yaml
 
-    # 备份旧文件
     if SLA_PATH.exists():
         _sh.copy2(SLA_PATH, str(SLA_PATH) + ".bak")
 
-    # 简单 dump（不保留注释，但结构清晰）
-    import yaml as _yaml
     with open(SLA_PATH, "w", encoding="utf-8", newline="\n") as f:
         _yaml.safe_dump(
             rules, f,
@@ -98,7 +98,6 @@ def _notify_sla(ticket: Ticket, new_status: str) -> None:
     """发飞书通知（通过 notify/notifier.py）。"""
     try:
         from app.notify.notifier import send as notify
-        from sqlalchemy import select
         from app.db.models.user import User
 
         # 找工程师的飞书 open_id
@@ -166,7 +165,6 @@ def scan_all_tickets() -> dict:
     """扫描所有未关闭工单，更新 SLA 状态并通知。"""
     stats = {"normal": 0, "warning": 0, "overdue": 0, "checked": 0, "notified": 0}
     with session_scope() as s:
-        from sqlalchemy import select
         rows = s.execute(
             select(Ticket).where(Ticket.status.notin_(["closed", "cancelled", "resolved"]))
         ).scalars().all()
@@ -216,7 +214,6 @@ def get_sla_summary() -> dict:
 
 def get_sla_tickets() -> dict:
     """返回所有未关闭工单 + SLA 倒计时（给前端用）。"""
-    from sqlalchemy import case, select
     out = []
     with session_scope() as s:
         rows = s.execute(

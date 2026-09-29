@@ -3,6 +3,12 @@ import MainLayout from "../layouts/MainLayout.vue";
 
 const routes = [
   {
+    path: "/login",
+    name: "登录",
+    component: () => import("../views/Login.vue"),
+    meta: { public: true },
+  },
+  {
     path: "/",
     component: MainLayout,
     redirect: "/chat",
@@ -23,7 +29,21 @@ const routes = [
   },
 ];
 
-export default createRouter({
+const router = createRouter({
   history: createWebHistory(),
   routes,
 });
+
+router.beforeEach((to, from, next) => {
+  const token = localStorage.getItem("auth_token");
+  if (to.meta && to.meta.public) {
+    if (token && to.path === "/login") return next("/chat");
+    return next();
+  }
+  if (!token) {
+    return next("/login");
+  }
+  next();
+});
+
+export default router;

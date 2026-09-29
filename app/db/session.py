@@ -1,5 +1,6 @@
 """数据库连接与会话管理。"""
 from __future__ import annotations
+import os
 
 from contextlib import contextmanager
 from typing import Optional
@@ -18,18 +19,25 @@ def get_engine() -> Engine:
     global _engine
     if _engine is None:
         s = get_settings()
-        url = (
-            f"mysql+pymysql://{s.mysql_user}:{s.mysql_password}"
-            f"@{s.mysql_host}:{s.mysql_port}/{s.mysql_database}?charset=utf8mb4"
-        )
-        _engine = create_engine(
-            url,
-            pool_pre_ping=True,
-            pool_recycle=3600,
-            pool_size=5,
-            max_overflow=10,
-            echo=False,
-        )
+        db_mode = (getattr(s, "db_mode", "") or "mysql").lower()
+        if db_mode == "sqlite":
+            url = "sqlite:///./data/app.db"
+        else:
+            url = (
+                f"mysql+pymysql://{s.mysql_user}:{s.mysql_password}"
+                f"@{s.mysql_host}:{s.mysql_port}/{s.mysql_database}?charset=utf8"
+            )
+        if db_mode == "sqlite":
+            _engine = create_engine(url, echo=False)
+        else:
+            _engine = create_engine(
+                url,
+                pool_pre_ping=True,
+                pool_recycle=3600,
+                pool_size=5,
+                max_overflow=10,
+                echo=False,
+            )
     return _engine
 
 
