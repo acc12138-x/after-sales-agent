@@ -15,7 +15,7 @@ from app.db.models.engineer import Engineer
 from app.db.models.ticket import Ticket
 from app.db.session import session_scope
 from app.notify.notifier import send as notify
-from app.services.sla_service import compute_deadline
+from app.services.sla_service import compute_deadline, get_ticket_sla_info
 
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
@@ -228,7 +228,11 @@ async def list_all_tickets(status: Optional[str] = None, incomplete_only: bool =
         if status:
             q = q.where(Ticket.status == status)
         rows = s.execute(q).scalars().all()
-        items = [t.to_dict() for t in rows]
+        items = []
+        for t in rows:
+            d = t.to_dict()
+            d.update(get_ticket_sla_info(t))
+            items.append(d)
         if incomplete_only:
             items = [x for x in items if not x["is_complete"]]
     return {"total": len(items), "items": items}

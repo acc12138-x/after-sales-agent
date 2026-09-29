@@ -17,6 +17,7 @@
         <el-menu-item index="/refunds"><el-icon><Money /></el-icon>退款管理</el-menu-item>
         <el-menu-item index="/sla"><el-icon><AlarmClock /></el-icon>SLA时效</el-menu-item>
         <el-menu-item index="/engineers"><el-icon><User /></el-icon>工程师</el-menu-item>
+        <el-menu-item index="/people"><el-icon><UserFilled /></el-icon>人员管理</el-menu-item>
         <el-menu-item index="/audit"><el-icon><Document /></el-icon>审计日志</el-menu-item>
         <el-menu-item index="/notifications"><el-icon><Bell /></el-icon>通知记录</el-menu-item>
         <el-menu-item index="/config"><el-icon><Setting /></el-icon>系统配置</el-menu-item>

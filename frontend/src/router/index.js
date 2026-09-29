@@ -14,6 +14,7 @@ const routes = [
       { path: "refunds",       name: "退款管理",  component: () => import("../views/Refunds.vue") },
       { path: "sla",           name: "SLA时效",   component: () => import("../views/SLA.vue") },
       { path: "engineers",     name: "工程师",    component: () => import("../views/Engineers.vue") },
+      { path: "people",        name: "人员管理",  component: () => import("../views/People.vue") },
       { path: "audit",         name: "审计日志",  component: () => import("../views/Audit.vue") },
       { path: "notifications", name: "通知记录",  component: () => import("../views/Notifications.vue") },
       { path: "config",        name: "系统配置",  component: () => import("../views/Config.vue") },

@@ -1,5 +1,6 @@
 """客户 + 订单 API。"""
 from __future__ import annotations
+import os
 from datetime import datetime
 from typing import Optional
 from uuid import uuid4
@@ -97,3 +98,101 @@ async def get_customer_refunds(customer_id: str):
 async def get_customer_risk(customer_id: str):
     from app.services.risk_service import check_risk
     return check_risk(customer_id)
+
+# ============================================================
+# 批量导入
+# ============================================================
+from fastapi import File, Form, UploadFile
+from typing import Dict as _Dict
+from pydantic import BaseModel as _BaseModel
+
+
+class ImportConfirmRequest(_BaseModel):
+    token: str
+    mapping: _Dict[str, str]
+
+
+@router.post("/import/upload")
+async def import_upload(file: UploadFile = File(...)):
+    """上传 Excel/CSV，返回预览。"""
+    from app.services.import_service import save_upload, preview
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="文件名不能为空")
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="文件内容为空")
+
+    token, path = save_upload(content, file.filename)
+    try:
+        result = preview(path)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return {
+        "token": token,
+        "filename": file.filename,
+        **result,
+    }
+
+
+@router.post("/import/confirm")
+async def import_confirm(req: ImportConfirmRequest):
+    """按 mapping 执行导入。"""
+    from app.services.import_service import get_upload_path, do_import
+    path = get_upload_path(req.token)
+    if not path:
+        raise HTTPException(status_code=404, detail="临时文件已过期，请重新上传")
+
+    try:
+        result = do_import(path, req.mapping)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    # 导入完删掉临时文件
+    try:
+        os.remove(path)
+    except Exception:
+        pass
+
+    return result
+
+
+@router.get("/import/template")
+async def import_template():
+    """下载导入模板（xlsx）。"""
+    from fastapi.responses import FileResponse
+    from app.services.import_service import IMPORT_DIR
+
+    tpl_path = IMPORT_DIR / "_template.xlsx"
+    if not tpl_path.exists():
+        # 生成模板
+        try:
+            import openpyxl
+        except ImportError:
+            raise HTTPException(status_code=500, detail="未安装 openpyxl")
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "客户导入"
+        headers = ["客户姓名", "手机号", "邮箱", "地址", "VIP等级", "订单数", "退款数", "投诉数"]
+        ws.append(headers)
+
+        # 示例数据
+        samples = [
+            ["张先生", "13800138000", "zhang@example.com", "上海市浦东新区", "gold", 5, 1, 0],
+            ["李女士", "13900139000", "li@example.com", "北京市海淀区", "normal", 2, 0, 0],
+        ]
+        for row in samples:
+            ws.append(row)
+
+        # 列宽
+        for i, w in enumerate([14, 16, 26, 30, 10, 10, 10, 10], 1):
+            ws.column_dimensions[chr(64 + i)].width = w
+
+        wb.save(str(tpl_path))
+
+    return FileResponse(
+        str(tpl_path),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        filename="客户导入模板.xlsx",
+    )

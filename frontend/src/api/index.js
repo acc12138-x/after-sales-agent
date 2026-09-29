@@ -48,7 +48,25 @@ export default {
   deleteEngineer: (id) => http.delete(`/engineers/${id}`),
   toggleEngineer: (id) => http.post(`/engineers/${id}/toggle-status`),
 
+  // ---------- 人员（users） ----------
+  getUsersMeta: () => http.get("/users/meta"),
+  listUsers: (params) => http.get("/users", { params }),
+  getUser: (id) => http.get(`/users/${id}`),
+  createUser: (data) => http.post("/users", data),
+  updateUser: (id, data) => http.put(`/users/${id}`, data),
+  deleteUser: (id) => http.delete(`/users/${id}`),
+  toggleUserStatus: (id) => http.post(`/users/${id}/toggle-status`),
+  getUserPermissions: (id) => http.get(`/users/${id}/permissions`),
+  checkUserPermission: (id, perm) => http.post(`/users/${id}/check`, { perm }),
+
   // ---------- 审计/通知 ----------
+  // ---------- SLA ----------
+  getSlaSummary: () => http.get("/sla/summary"),
+  getSlaRules: () => http.get("/sla/rules"),
+  getSlaTickets: () => http.get("/sla/tickets"),
+  scanSla: () => http.post("/sla/scan"),
+  updateSlaRules: (data) => http.put("/sla/rules", data),
+
   listAudit: (params) => http.get("/logs/audit", { params }),
   listNotifications: (params) => http.get("/logs/notifications", { params }),
   auditStats: () => http.get("/logs/audit/stats"),

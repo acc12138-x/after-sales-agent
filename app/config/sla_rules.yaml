@@ -1,10 +1,8 @@
-# SLA 时效规则（小时）
-# 工单类型: {urgent: 小时, normal: 小时}
 sla_rules:
   repair:
     urgent: 2
-    normal: 24
-    label: 报修
+    normal: 36
+    label: 报修-改过
   return:
     urgent: 4
     normal: 48
@@ -29,6 +27,4 @@ sla_rules:
     urgent: 4
     normal: 24
     label: 其他
-
-# 预警阈值：剩余时间少于 X% 时标记 warning
-warning_ratio: 0.3
+warning_ratio: 0.25
