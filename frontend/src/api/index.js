@@ -37,6 +37,11 @@ http.interceptors.response.use(
 
 export default {
   login: (data) => http.post("/auth/login", data),
+
+  getApprovalsPending: () => http.get("/approvals/pending"),
+  getApprovalStats: () => http.get("/approvals/stats"),
+  batchApproveRefunds: (data) => http.post("/approvals/refunds/batch", data),
+  reassignOverdueTicket: (id) => http.post(`/approvals/tickets/${id}/reassign`),
   me: () => http.get("/auth/me"),
   logout: () => http.post("/auth/logout"),
   changePassword: (data) => http.post("/auth/change-password", data),

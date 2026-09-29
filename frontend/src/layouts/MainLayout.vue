@@ -53,7 +53,7 @@ import { ref, computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { ElMessageBox, ElMessage } from "element-plus";
 import {
-  Tools, ChatDotRound, Collection, Tickets, UserFilled, Money,
+  Tools, ChatDotRound, Collection, Tickets, UserFilled, Money, CircleCheck,
   AlarmClock, User, Document, Bell, Setting, DataLine, SwitchButton,
 } from "@element-plus/icons-vue";
 import api from "../api";
@@ -70,6 +70,7 @@ const MENUS = [
   { path: "/sla",           label: "SLA时效",   icon: AlarmClock },
   { path: "/engineers",     label: "工程师",    icon: User,        perm: "user.view" },
   { path: "/people",        label: "人员管理",  icon: UserFilled,  perm: "user.view" },
+  { path: "/approvals",     label: "审批台",    icon: CircleCheck, perm: "refund.approve" },
   { path: "/audit",         label: "审计日志",  icon: Document,    perm: "audit.view" },
   { path: "/notifications", label: "通知记录",  icon: Bell },
   { path: "/config",        label: "系统配置",  icon: Setting,     perm: "sla.edit" },

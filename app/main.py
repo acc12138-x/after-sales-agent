@@ -9,7 +9,7 @@ os.environ.setdefault("no_proxy", "127.0.0.1,localhost,::1")
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import chat, tickets, knowledge, stream, openai_compat, admin, engineers, audit, customers, refunds, sla, users, auth
+from app.api.routes import approvals, chat, tickets, knowledge, stream, openai_compat, admin, engineers, audit, customers, refunds, sla, users, auth
 from app.api.schemas.models import HealthResponse
 import asyncio
 from contextlib import asynccontextmanager
@@ -66,6 +66,7 @@ app.include_router(openai_compat.router)
 app.include_router(admin.router)
 app.include_router(engineers.router)
 app.include_router(users.router)
+app.include_router(approvals.router)
 app.include_router(auth.router)
 app.include_router(audit.router)
 app.include_router(customers.router)
