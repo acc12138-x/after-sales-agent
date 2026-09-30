@@ -1,5 +1,13 @@
 """意图识别测试。"""
-from app.workflows.nodes.intent import _extract_slots, _is_consult_query
+import pytest
+
+from app.intent.factory import get_intent_engine
+from app.workflows.nodes.chitchat_node import chitchat_node
+from app.workflows.nodes.intent import (
+    _extract_slots,
+    _is_consult_query,
+    _looks_like_chitchat,
+)
 
 
 class TestSlotExtraction:
@@ -40,3 +48,65 @@ class TestConsultQuery:
 
     def test_with_action_and_alarm(self):
         assert _is_consult_query("帮我修一下 E503 报警") is False
+
+
+class TestChitchat:
+    """问候 / 致谢 / 告别必须命中 chitchat。
+
+    回归背景：早期 pattern 的尾部只允许标点（`[！!。.？?]*$`），
+    于是「你好啊」「谢谢啦」这类带语气词的输入全部未命中，
+    兜底成 qa 走了 RAG，最终回给用户「知识库中没有找到相关内容」。
+    """
+
+    @pytest.mark.parametrize("text", [
+        "你好", "你好啊", "你好呀", "你好哦", "您好",
+        "嗨", "嗨嗨", "hello", "hi",
+        "在吗", "在吗？", "在不在",
+        "早上好", "早上好啊", "中午好", "下午好", "晚上好", "晚安", "哈喽",
+        "你是谁", "你是谁啊", "你叫什么名字", "你能做什么", "你能做什么呢",
+        "你会啥", "你能干嘛", "帮助",
+        "谢谢", "谢谢啦", "多谢", "感谢",
+        "再见", "拜拜", "拜拜咯",
+    ])
+    def test_greeting_hits_chitchat(self, text):
+        top = get_intent_engine().classify_top(text)
+        assert top is not None, f"{text!r} 未命中任何意图"
+        assert top.id == "chitchat", f"{text!r} -> {top.id}"
+
+    @pytest.mark.parametrize("text", [
+        "你好啊", "嗨嗨", "你会啥", "谢谢啦", "拜拜咯",
+    ])
+    def test_fallback_recognises_chitchat(self, text):
+        assert _looks_like_chitchat(text) is True
+
+    @pytest.mark.parametrize("text", [
+        "E102 报警", "怎么退货", "查订单 O20260101001", "退款 500 元",
+        "手机号 13800138000", "张工在吗", "帮我报修 E102",
+    ])
+    def test_business_never_falls_back_to_chitchat(self, text):
+        assert _looks_like_chitchat(text) is False
+
+
+class TestChitchatNode:
+    """chitchat_node 按语义给不同回复，且不因缺 user_input 就退化。"""
+
+    def test_thanks(self):
+        r = chitchat_node({"user_input": "谢谢啦", "messages": []})
+        assert "不客气" in r["answer"]
+
+    def test_bye(self):
+        r = chitchat_node({"user_input": "拜拜咯", "messages": []})
+        assert "再见" in r["answer"]
+
+    def test_whoami(self):
+        r = chitchat_node({"user_input": "你是谁啊", "messages": []})
+        assert "业务助手" in r["answer"]
+
+    def test_greeting_returns_capability(self):
+        r = chitchat_node({"user_input": "你好啊", "messages": []})
+        assert "我可以帮您" in r["answer"]
+
+    def test_falls_back_to_last_user_message(self):
+        """没有 user_input 时，应从 messages 里取最后一条用户消息。"""
+        r = chitchat_node({"messages": [{"role": "user", "content": "谢谢你"}]})
+        assert "不客气" in r["answer"]

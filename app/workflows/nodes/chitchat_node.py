@@ -37,8 +37,23 @@ THANKS = "不客气 😊 有问题随时找我。"
 BYE    = "再见，祝您工作顺利 👋"
 
 
+def _text_of(state: AgentState) -> str:
+    """取当前用户消息：优先 user_input，回退到最后一条 user 消息。
+
+    回退是为了容错 —— 若哪天某个入口忘了填 user_input，
+    这里不会静默退化成「能力介绍」。
+    """
+    t = (state.get("user_input") or "").strip()
+    if t:
+        return t
+    for m in reversed(state.get("messages") or []):
+        if isinstance(m, dict) and m.get("role") == "user":
+            return (m.get("content") or "").strip()
+    return ""
+
+
 def chitchat_node(state: AgentState) -> AgentState:
-    text = (state.get("user_input") or "").strip()
+    text = _text_of(state)
     if WHOAMI_RE.search(text):
         answer = WHOAMI
     elif THANKS_RE.search(text):

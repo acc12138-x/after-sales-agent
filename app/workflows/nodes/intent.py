@@ -122,6 +122,34 @@ BUSINESS_KEYWORDS = [
     "工程师", "师傅", "有空", "空闲", "谁在", "负载", "工",
 ]
 
+# 问候/致谢/告别的「开头词」，用于意图引擎完全未命中时的闲聊兜底
+GREETING_PREFIX_RE = re.compile(
+    r"^(你好|您好|哈喽|哈啰|嗨|hello|hi|在吗|在不在|在么|早|中午好|下午好|晚上好|晚安|"
+    r"你是谁|你叫什么|你能做什么|你会做什么|能帮我做什么|你能干嘛|你会啥|有什么功能|"
+    r"帮助|help|菜单|谢谢|感谢|多谢|thank|再见|拜拜|bye)",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_chitchat(text: str) -> bool:
+    """意图引擎完全未命中时的闲聊兜底。
+
+    仅当「短句 + 以问候/致谢/告别开头 + 无任何业务信号」时成立，
+    避免把 "E102 报警"、"怎么退货" 这类短查询误判成闲聊。
+    """
+    t = (text or "").strip()
+    if not t or len(t) > 12:
+        return False
+    if any(k in t for k in BUSINESS_KEYWORDS):
+        return False
+    if any(w in t for w in ACTION_WORDS):
+        return False
+    if re.search(r"\d", t):                    # 订单号 / 故障码 / 手机号
+        return False
+    if re.search(r"[赵张李王孙周吴郑陈刘杨黄胡]工", t):
+        return False
+    return bool(GREETING_PREFIX_RE.match(t))
+
 
 def _is_consult_query(text: str) -> bool:
     if not text:
@@ -275,7 +303,14 @@ def intent_node(state: AgentState) -> AgentState:
     # 5. 意图引擎
     engine = get_intent_engine()
     top = engine.classify_top(text)
-    engine_intent = top.id if top else "qa"
+    if top:
+        engine_intent = top.id
+    elif _looks_like_chitchat(text):
+        # 引擎没命中，但明显是问候/致谢/告别 → 闲聊，
+        # 不要兜底成 qa 去检索知识库（否则会得到「没找到相关内容」的拒答）
+        engine_intent = "chitchat"
+    else:
+        engine_intent = "qa"
 
     # 6. 决策
     if followup_intent and is_pure_slot:
