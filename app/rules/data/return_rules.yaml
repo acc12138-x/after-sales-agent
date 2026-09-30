@@ -1,0 +1,92 @@
+group: after_sales
+
+rules:
+  - id: return_quality_issue
+    name: 质量问题退货（15天内）
+    category: return
+    priority: 100
+    conditions:
+      - field: quality_issue
+        op: eq
+        value: true
+      - field: days_since_received
+        op: le
+        value: 15
+    result:
+      allowed: true
+      message: "商品存在质量问题，符合15天内退货条件，运费由商家承担。"
+      next_action: create_return_order
+      shipping_paid_by: seller
+      need_human: false
+
+  - id: return_7days_no_reason
+    name: 7天无理由退货
+    category: return
+    priority: 50
+    conditions:
+      - field: days_since_received
+        op: le
+        value: 7
+      - field: used
+        op: eq
+        value: false
+      - field: has_original_package
+        op: eq
+        value: true
+      - field: category
+        op: not_in
+        value: ["内衣", "生鲜", "定制商品"]
+    result:
+      allowed: true
+      message: "符合7天无理由退货条件，商品需保持原包装完好，运费由买家承担。"
+      next_action: create_return_order
+      shipping_paid_by: customer
+      need_human: false
+
+  - id: return_used_rejected
+    name: 已使用商品无法退货
+    category: return
+    priority: 90
+    conditions:
+      - field: used
+        op: eq
+        value: true
+      - field: quality_issue
+        op: eq
+        value: false
+    result:
+      allowed: false
+      message: "商品已使用且非质量问题，不支持退货。"
+      next_action: notify_human
+      need_human: true
+
+  - id: return_over_15days
+    name: 超过15天退货期限
+    category: return
+    priority: 80
+    conditions:
+      - field: days_since_received
+        op: gt
+        value: 15
+    result:
+      allowed: false
+      message: "已超过15天退货期限，特殊情况请转人工协商。"
+      next_action: notify_human
+      need_human: true
+
+  - id: return_special_category
+    name: 特殊品类不支持无理由退货
+    category: return
+    priority: 70
+    conditions:
+      - field: category
+        op: in
+        value: ["内衣", "生鲜", "定制商品"]
+      - field: quality_issue
+        op: eq
+        value: false
+    result:
+      allowed: false
+      message: "该品类属于特殊商品，不支持7天无理由退货。"
+      next_action: notify_human
+      need_human: true

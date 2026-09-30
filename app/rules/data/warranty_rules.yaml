@@ -1,0 +1,53 @@
+group: after_sales
+
+rules:
+  - id: warranty_in_period_quality
+    name: 保修期内非人为损坏
+    category: warranty
+    priority: 100
+    conditions:
+      - field: days_since_purchase
+        op: le
+        value: 365
+      - field: human_damage
+        op: eq
+        value: false
+    result:
+      allowed: true
+      message: "设备在保修期内且非人为损坏，可免费保修。"
+      next_action: create_repair_order
+      shipping_paid_by: seller
+      need_human: false
+
+  - id: warranty_in_period_human_damage
+    name: 保修期内人为损坏
+    category: warranty
+    priority: 90
+    conditions:
+      - field: days_since_purchase
+        op: le
+        value: 365
+      - field: human_damage
+        op: eq
+        value: true
+    result:
+      allowed: true
+      message: "设备在保修期内但属人为损坏，维修需收费，请确认后预约维修。"
+      next_action: create_repair_order
+      shipping_paid_by: customer
+      need_human: true
+
+  - id: warranty_out_of_period
+    name: 超过保修期
+    category: warranty
+    priority: 80
+    conditions:
+      - field: days_since_purchase
+        op: gt
+        value: 365
+    result:
+      allowed: true
+      message: "已超过1年保修期，维修需收费。"
+      next_action: create_repair_order
+      shipping_paid_by: customer
+      need_human: true

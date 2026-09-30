@@ -1,0 +1,30 @@
+group: after_sales
+
+rules:
+  - id: shipping_quality_issue
+    name: 质量问题运费由商家承担
+    category: shipping
+    priority: 100
+    conditions:
+      - field: quality_issue
+        op: eq
+        value: true
+    result:
+      allowed: true
+      message: "质量问题导致的退换货，运费由商家承担。"
+      shipping_paid_by: seller
+      need_human: false
+
+  - id: shipping_no_reason
+    name: 无理由退货运费由买家承担
+    category: shipping
+    priority: 50
+    conditions:
+      - field: quality_issue
+        op: eq
+        value: false
+    result:
+      allowed: true
+      message: "非质量问题的退换货，运费由买家承担。"
+      shipping_paid_by: customer
+      need_human: false

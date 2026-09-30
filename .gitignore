@@ -18,8 +18,11 @@ venv*/
 !.env.example
 
 # ===== 数据与缓存 =====
-data/
-logs/
+# ⚠️ 必须锚定到仓库根（前导 /）：无锚定的 `data/` 会匹配任意层级的 data 目录，
+#    把 app/intent/data、app/rules/data、app/services/data 这些【源码配置】一起吞掉，
+#    导致克隆下来的仓库缺意图定义与规则，项目直接跑不起来。
+/data/
+/logs/
 *.db
 *.sqlite
 *.db-shm
@@ -42,12 +45,14 @@ frontend/dist/
 frontend/.vite/
 
 # ===== 备份与归档 =====
+# ⚠️ 同样必须锚定：无锚定的 `_*.py` 会匹配任意层级的 `__init__.py`
+#    （它以下划线开头），导致包初始化文件漏提交。
 _backup_*/
 _archive/
 *.bak*
-_*.py
-_*.txt
-_*.log
+/_*.py
+/_*.txt
+/_*.log
 
 # ===== 临时文件 =====
 *.tmp
@@ -58,6 +63,6 @@ _*.log
 .DS_Store
 Thumbs.db
 
-# ===== 工具二进制 =====
-tools/
+# ===== 工具二进制（Redis for Windows 等，含大量 .pdb，不入库）=====
+/tools/
 docs/08-interview.md

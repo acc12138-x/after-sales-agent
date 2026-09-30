@@ -1,0 +1,35 @@
+{
+  "O20260101001": {
+    "order_id": "O20260101001",
+    "user_id": "U1001",
+    "status": "delivered",
+    "amount": 2999.00,
+    "created_at": "2026-08-15T10:30:00",
+    "delivered_at": "2026-08-18T14:00:00",
+    "items": [
+      {"sku": "XY200", "name": "XY200 智能设备", "quantity": 1, "category": "家电"}
+    ]
+  },
+  "O20260201002": {
+    "order_id": "O20260201002",
+    "user_id": "U1002",
+    "status": "shipped",
+    "amount": 199.00,
+    "created_at": "2026-09-20T09:00:00",
+    "delivered_at": null,
+    "items": [
+      {"sku": "AB100", "name": "AB100 传感器", "quantity": 2, "category": "配件"}
+    ]
+  },
+  "O20260301003": {
+    "order_id": "O20260301003",
+    "user_id": "U1001",
+    "status": "delivered",
+    "amount": 599.00,
+    "created_at": "2026-09-01T15:20:00",
+    "delivered_at": "2026-09-05T10:00:00",
+    "items": [
+      {"sku": "NEI001", "name": "内衣套装", "quantity": 1, "category": "内衣"}
+    ]
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "XY200": {
+    "sku": "XY200",
+    "name": "XY200 智能设备",
+    "category": "家电",
+    "warranty_days": 365,
+    "price": 2999.00
+  },
+  "AB100": {
+    "sku": "AB100",
+    "name": "AB100 传感器",
+    "category": "配件",
+    "warranty_days": 180,
+    "price": 99.50
+  },
+  "NEI001": {
+    "sku": "NEI001",
+    "name": "内衣套装",
+    "category": "内衣",
+    "warranty_days": 0,
+    "price": 599.00
+  }
+}

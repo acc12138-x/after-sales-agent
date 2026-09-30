@@ -1,0 +1,72 @@
+group: finance
+
+rules:
+  - id: refund_full_amount
+    name: 全额退款
+    category: refund
+    priority: 100
+    conditions:
+      - field: amount
+        op: le
+        value: 100
+    result:
+      allowed: true
+      message: "小额退款（≤100），AI 可自动审批。"
+      next_action: create_refund_request
+      need_human: false
+
+  - id: refund_medium_amount
+    name: 中等金额退款
+    category: refund
+    priority: 80
+    conditions:
+      - field: amount
+        op: between
+        value: [100, 500]
+    result:
+      allowed: true
+      message: "中等金额退款（100-500），需人工审批。"
+      next_action: create_refund_request
+      need_human: true
+
+  - id: refund_large_amount
+    name: 大额退款
+    category: refund
+    priority: 90
+    conditions:
+      - field: amount
+        op: gt
+        value: 500
+    result:
+      allowed: true
+      message: "大额退款（>500），必须人工审批。"
+      next_action: create_refund_request
+      need_human: true
+
+  - id: refund_high_risk_customer
+    name: 高风险客户退款
+    category: refund
+    priority: 200
+    conditions:
+      - field: risk_level
+        op: eq
+        value: high_risk
+    result:
+      allowed: false
+      message: "高风险客户，退款需人工审批。"
+      next_action: notify_human
+      need_human: true
+
+  - id: refund_over_warranty
+    name: 超保修期退款
+    category: refund
+    priority: 150
+    conditions:
+      - field: in_warranty
+        op: eq
+        value: false
+    result:
+      allowed: false
+      message: "订单已超保修期，退款需人工审批。"
+      next_action: notify_human
+      need_human: true

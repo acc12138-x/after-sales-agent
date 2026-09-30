@@ -1,0 +1,157 @@
+intents:
+  # ============ 服务类 ============
+  - id: human
+    name: 转人工
+    parent: service
+    category: service
+    priority: 200
+    keywords: ["转人工", "人工客服", "找客服", "要人工", "客服电话"]
+    patterns: ["(转|接|要).{0,3}人工", "人工.{0,3}(客服|服务)"]
+    slots: []
+
+  - id: complaint
+    name: 投诉
+    parent: service
+    category: service
+    priority: 180
+    keywords: ["投诉", "差评", "太差", "不满意", "曝光", "举报"]
+    patterns: ["(投诉|举报|曝光)", "(太|很).{0,3}(差|烂)"]
+    slots: [reason]
+
+  - id: ticket
+    name: 建单/报修
+    parent: service
+    category: service
+    priority: 160
+    keywords: ["报修", "建单", "创建工单", "帮我报", "工单", "登记", "维修工单", "坏了", "报错", "报警", "不能用了", "用不了", "出问题了", "加急", "急单", "紧急"]
+    patterns: ["(创建|建|生成).{0,2}工单", "帮我报[修障]", "我要报[修障]", "(坏|报[错警])"]
+    slots: [device_model, error_code]
+
+  # ============ 资金类（优先级高于退货）============
+  - id: refund_apply
+    name: 退款申请
+    parent: finance
+    category: finance
+    priority: 170
+    keywords: ["退款", "退钱", "要退钱", "退还", "返钱", "退回", "申请退"]
+    patterns: ["(我要|申请|想|帮我|要求).{0,3}退款", "退款", "退钱"]
+    slots: [order_id, amount, reason]
+
+  - id: compensation
+    name: 赔付申请
+    parent: finance
+    category: finance
+    priority: 165
+    keywords: ["赔付", "补偿", "赔钱", "索赔", "赔我", "费用报销", "运费赔付"]
+    patterns: ["(赔付|补偿|索赔|赔我)", "(报销|补偿).{0,3}(运费|费用)"]
+    slots: [order_id, amount, reason]
+
+  # ============ 售后类 ============
+  - id: return
+    name: 退货
+    parent: after_sales
+    category: after_sales
+    priority: 150
+    keywords: ["退货", "想退", "退掉", "不想要了", "七天无理由"]
+    patterns: ["(我要|申请|想).{0,2}退(货|掉)", "退(货)流?程"]
+    slots: [order_id, reason]
+
+  - id: exchange
+    name: 换货
+    parent: after_sales
+    category: after_sales
+    priority: 150
+    keywords: ["换货", "想换", "换一个", "换新", "换个"]
+    patterns: ["(我要|申请|想).{0,2}换(货|新)"]
+    slots: [order_id, reason]
+
+  - id: warranty
+    name: 保修咨询
+    parent: after_sales
+    category: after_sales
+    priority: 130
+    keywords: ["保修", "保质期", "保修期", "保修范围", "还在保吗"]
+    patterns: ["保修", "保(质|修)期", "还在保(内|吗)?"]
+    slots: [device_model]
+
+  - id: invoice
+    name: 开发票
+    parent: after_sales
+    category: after_sales
+    priority: 120
+    keywords: ["发票", "开发票", "开票", "补开", "电子发票"]
+    patterns: ["(开|补|要).{0,3}发票"]
+    slots: [order_id]
+
+  - id: my_tickets
+    name: 查我的工单
+    parent: query
+    category: query
+    priority: 145
+    keywords: ["我的工单", "查看我的工单", "我的报修", "我的维修", "查我的工单", "我的单子"]
+    patterns: ["(查|查看|看|列出).{0,3}我的.{0,3}(工单|报修|维修|单子)", "我的.{0,2}(工单|报修|维修)"]
+    slots: []
+
+  # ============ 查询类 ============
+  - id: engineer_query
+    name: 查工程师
+    parent: query
+    category: query
+    priority: 135
+    keywords: ["赵工", "张工", "李工", "王工", "孙工", "周工", "吴工", "郑工", "工程师", "师傅", "有空", "空闲", "谁有空", "谁在", "哪个工程"]
+    patterns: ["(赵|张|李|王|孙|周|吴|郑|陈|刘|杨|黄|赵).{0,2}工", "(工程师|师傅).{0,8}(有空|空闲|忙|负载|状态|接单)", "(谁|哪个).{0,5}(工程师|师傅|工).{0,5}(有空|空闲|接)"]
+    slots: [engineer_name]
+
+  - id: customer_query
+    name: 查客户资产
+    parent: query
+    category: query
+    priority: 130
+    keywords: ["手机号", "客户信息", "客户资料", "谁的订单", "这个客户的", "客户资产", "他的订单", "她的订单"]
+    patterns: ["(手机号|电话).{0,10}(订单|信息|记录)", "客户.{0,5}(订单|信息|资料)"]
+    slots: [phone]
+
+  - id: order_query
+    name: 查订单
+    parent: query
+    category: query
+    priority: 120
+    keywords: ["订单", "我的订单", "查订单", "订单状态", "买的东西"]
+    patterns: ["(查|看).{0,3}订单", "订单.{0,3}(状态|信息|在哪)"]
+    slots: [phone, order_id]
+
+  - id: logistics
+    name: 查物流
+    parent: query
+    category: query
+    priority: 120
+    keywords: ["物流", "快递", "发货", "到哪了", "几天到", "运单"]
+    patterns: ["物流", "快递", "(发|到).{0,3}(货|哪里|哪了)"]
+    slots: [order_id, phone]
+
+  # ============ 闲聊 / 问候 ============
+  - id: chitchat
+    name: 闲聊问候
+    parent: generic
+    category: generic
+    priority: 15
+    keywords: []
+    # 注意：问候/致谢/告别后面经常跟中文语气词（你好啊 / 谢谢啦 / 你是谁呢），
+    # 所以尾部「可跟随字符」必须同时包含语气词和标点。
+    # 早期版本只允许标点，导致「你好啊」未命中 → 兜底成 qa 走 RAG → 拒答。
+    patterns:
+      - '^\s*(你好|您好|哈喽|哈啰|嗨嗨|嗨|hello|hi|在吗|在不在|在么|早上好|中午好|下午好|晚上好|晚安|早)[啊呀哦噢呢吧嘛哈啦咯诶哎嗯哪哟哇嘞\s！!。.？?~～,，、]*$'
+      - '^\s*(你是谁|你叫什么|你叫什么名字|你能做什么|你会做什么|能帮我做什么|你能干嘛|你会啥|有什么功能|帮助|help|菜单)[啊呀哦噢呢吧嘛哈啦咯诶哎嗯哪哟哇嘞\s！!。.？?~～,，、]*$'
+      - '^\s*(谢谢|感谢|多谢|thank(s| you)?|3q)[啊呀哦噢呢吧嘛哈啦咯诶哎嗯哪哟哇嘞\s！!。.？?~～,，、]*$'
+      - '^\s*(再见|拜拜|bye|see you|晚安)[啊呀哦噢呢吧嘛哈啦咯诶哎嗯哪哟哇嘞\s！!。.？?~～,，、]*$'
+    slots: []
+
+  # ============ 兜底 ============
+  - id: qa
+    name: 通用问答
+    parent: generic
+    category: generic
+    priority: 10
+    keywords: []
+    patterns: []
+    slots: []
