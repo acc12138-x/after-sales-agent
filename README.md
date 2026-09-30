@@ -8,7 +8,7 @@
 ![LangGraph](https://img.shields.io/badge/LangGraph-1.2-ff6f61)
 ![Vue](https://img.shields.io/badge/Vue-3.5-42b883?logo=vuedotjs&logoColor=white)
 ![MySQL](https://img.shields.io/badge/MySQL-8.0-4479A1?logo=mysql&logoColor=white)
-![License](https://img.shields.io/badge/License-Internal-lightgrey)
+![License](https://img.shields.io/badge/License-MIT-green)
 
 **English** · An enterprise after-sales agent platform combining a LangGraph state machine, hybrid RAG retrieval (BM25 + vector + RRF + rerank), a self-built rule engine, ticket workflow automation, refund risk control and human-in-the-loop approval — with a FastAPI backend and a Vue 3 admin console.
 
@@ -488,6 +488,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 多项目共存的完整方案（一个 Caddy 边缘代理按子域名分流、内存预算、swap、排错）见
 **[docs/10-deploy-2g.md](docs/10-deploy-2g.md)**，边缘代理配置在 [`deploy/`](deploy)。
 
+服务器上查看已运行项目的信息（内存 / 容器 / 端口 / 日志 / 反代速查，以及**加新项目前的容量评估**）见
+**[docs/11-server-inspection.md](docs/11-server-inspection.md)**。
+
 ---
 
 ## 🗺️ 路线图与已知限制
@@ -544,4 +547,15 @@ RAG 混合召回与拒答 · 16 类意图识别 · 规则引擎 · 工单状态�
 
 ## 📄 License
 
-本项目为**内部项目**（Internal Use Only）。如需开源，请先补充 `LICENSE` 文件并调整 `pyproject.toml` 中的 license 字段。
+**完全开源** —— 采用 [MIT License](LICENSE)。
+
+你可以自由地：**使用、复制、修改、合并、发布、分发、再授权、销售**，
+包括**商业用途**，唯一的要求是保留版权声明与许可声明。
+
+```
+Copyright (c) 2026 acc12138-x
+SPDX-License-Identifier: MIT
+```
+
+> 这是一个**个人学习/作品展示项目**，代码与架构均可自由参考取用。
+> 仓库内的示例数据（客户 / 订单 / 物流）系模拟生成，不含任何真实业务数据。

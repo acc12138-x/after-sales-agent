@@ -4,9 +4,9 @@ version = "0.1.0"
 description = "Enterprise After-Sales Knowledge Base Intelligent Q&A and Ticket Automation Agent Platform"
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Proprietary" }
+license = { text = "MIT" }
 authors = [
-    { name = "Your Name", email = "you@example.com" }
+    { name = "acc12138-x", email = "acc12138-x@users.noreply.github.com" }
 ]
 
 [project.optional-dependencies]
