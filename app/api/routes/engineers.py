@@ -3,14 +3,19 @@ from __future__ import annotations
 import json
 from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 
+from app.api.deps import require_permission
 from app.api.schemas.models import EngineerCreate, EngineerResponse, EngineerUpdate
 from app.db.models.user import User
 from app.db.session import session_scope
 
 router = APIRouter(prefix="/engineers", tags=["engineers"])
+
+# 工程师页是人员管理的旧入口，权限与 users 保持一致
+_e_view = require_permission("user.view")
+_e_edit = require_permission("user.edit")
 
 
 def _next_user_id(s) -> str:
@@ -45,7 +50,7 @@ def _to_resp(u: User) -> dict:
 
 
 @router.get("", response_model=List[EngineerResponse])
-async def list_engineers():
+async def list_engineers(user: dict = Depends(_e_view)):
     with session_scope() as s:
         rows = s.execute(
             select(User).where(User.role == "engineer")
@@ -55,7 +60,8 @@ async def list_engineers():
 
 
 @router.post("", response_model=EngineerResponse)
-async def create_engineer(req: EngineerCreate):
+async def create_engineer(req: EngineerCreate,
+                          user: dict = Depends(_e_edit)):
     with session_scope() as s:
         exists = s.execute(
             select(User).where(User.name == req.name)
@@ -87,7 +93,8 @@ async def create_engineer(req: EngineerCreate):
 
 
 @router.put("/{engineer_id}", response_model=EngineerResponse)
-async def update_engineer(engineer_id: int, req: EngineerUpdate):
+async def update_engineer(engineer_id: int, req: EngineerUpdate,
+                          user: dict = Depends(_e_edit)):
     with session_scope() as s:
         u = s.get(User, engineer_id)
         if u is None or u.role != "engineer":
@@ -114,7 +121,7 @@ async def update_engineer(engineer_id: int, req: EngineerUpdate):
 
 
 @router.delete("/{engineer_id}")
-async def delete_engineer(engineer_id: int):
+async def delete_engineer(engineer_id: int, user: dict = Depends(_e_edit)):
     with session_scope() as s:
         u = s.get(User, engineer_id)
         if u is None or u.role != "engineer":
@@ -129,7 +136,7 @@ async def delete_engineer(engineer_id: int):
 
 
 @router.post("/{engineer_id}/toggle-status")
-async def toggle_status(engineer_id: int):
+async def toggle_status(engineer_id: int, user: dict = Depends(_e_edit)):
     with session_scope() as s:
         u = s.get(User, engineer_id)
         if u is None or u.role != "engineer":
@@ -140,7 +147,7 @@ async def toggle_status(engineer_id: int):
 
 
 @router.post("/rebuild-load")
-async def rebuild_load():
+async def rebuild_load(user: dict = Depends(_e_edit)):
     """从 tickets 表重建所有工程师的当前负载。"""
     from app.db.models.ticket import Ticket
 

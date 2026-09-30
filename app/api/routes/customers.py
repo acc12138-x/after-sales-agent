@@ -4,9 +4,10 @@ import os
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from sqlalchemy import select
 
+from app.api.deps import require_permission
 from app.api.schemas.models import CustomerCreate, CustomerResponse
 from app.db.models.customer import Customer
 from app.db.models.order import Order
@@ -15,6 +16,9 @@ from app.db.models.refund import RefundRequest
 from app.db.session import session_scope
 
 router = APIRouter(prefix="/customers", tags=["customers"])
+
+_c_view = require_permission("customer.view")
+_c_create = require_permission("customer.create")
 
 
 def _to_resp(c: Customer) -> CustomerResponse:
@@ -26,6 +30,7 @@ async def list_customers(
     vip_level: Optional[str] = None,
     risk_level: Optional[str] = None,
     keyword: Optional[str] = None,
+    user: dict = Depends(_c_view),
 ):
     from sqlalchemy import or_
     with session_scope() as s:
@@ -48,7 +53,7 @@ async def list_customers(
 
 
 @router.post("", response_model=CustomerResponse)
-async def create_customer(req: CustomerCreate):
+async def create_customer(req: CustomerCreate, user: dict = Depends(_c_create)):
     with session_scope() as s:
         exists = s.execute(select(Customer).where(Customer.phone == req.phone)).scalar_one_or_none()
         if exists:
@@ -68,7 +73,7 @@ async def create_customer(req: CustomerCreate):
 
 
 @router.get("/{customer_id}")
-async def get_customer(customer_id: str):
+async def get_customer(customer_id: str, user: dict = Depends(_c_view)):
     with session_scope() as s:
         c = s.get(Customer, customer_id)
         if c is None:
@@ -77,7 +82,7 @@ async def get_customer(customer_id: str):
 
 
 @router.get("/{customer_id}/orders")
-async def get_customer_orders(customer_id: str):
+async def get_customer_orders(customer_id: str, user: dict = Depends(_c_view)):
     with session_scope() as s:
         rows = s.execute(
             select(Order).where(Order.customer_id == customer_id).order_by(Order.created_at.desc())
@@ -86,7 +91,7 @@ async def get_customer_orders(customer_id: str):
 
 
 @router.get("/{customer_id}/tickets")
-async def get_customer_tickets(customer_id: str):
+async def get_customer_tickets(customer_id: str, user: dict = Depends(_c_view)):
     """客户工单：通过 contact 里含手机号匹配。"""
     with session_scope() as s:
         c = s.get(Customer, customer_id)
@@ -99,7 +104,7 @@ async def get_customer_tickets(customer_id: str):
 
 
 @router.get("/{customer_id}/refunds")
-async def get_customer_refunds(customer_id: str):
+async def get_customer_refunds(customer_id: str, user: dict = Depends(_c_view)):
     with session_scope() as s:
         rows = s.execute(
             select(RefundRequest).where(RefundRequest.customer_id == customer_id).order_by(RefundRequest.created_at.desc())
@@ -108,7 +113,7 @@ async def get_customer_refunds(customer_id: str):
 
 
 @router.get("/{customer_id}/risk")
-async def get_customer_risk(customer_id: str):
+async def get_customer_risk(customer_id: str, user: dict = Depends(_c_view)):
     from app.services.risk_service import check_risk
     return check_risk(customer_id)
 
@@ -126,7 +131,8 @@ class ImportConfirmRequest(_BaseModel):
 
 
 @router.post("/import/upload")
-async def import_upload(file: UploadFile = File(...)):
+async def import_upload(file: UploadFile = File(...),
+                        user: dict = Depends(_c_create)):
     """上传 Excel/CSV，返回预览。"""
     from app.services.import_service import save_upload, preview
     if not file.filename:
@@ -149,7 +155,8 @@ async def import_upload(file: UploadFile = File(...)):
 
 
 @router.post("/import/confirm")
-async def import_confirm(req: ImportConfirmRequest):
+async def import_confirm(req: ImportConfirmRequest,
+                         user: dict = Depends(_c_create)):
     """按 mapping 执行导入。"""
     from app.services.import_service import get_upload_path, do_import
     path = get_upload_path(req.token)
@@ -171,7 +178,7 @@ async def import_confirm(req: ImportConfirmRequest):
 
 
 @router.get("/import/template")
-async def import_template():
+async def import_template(user: dict = Depends(_c_view)):
     """下载导入模板（xlsx）。"""
     from fastapi.responses import FileResponse
     from app.services.import_service import IMPORT_DIR

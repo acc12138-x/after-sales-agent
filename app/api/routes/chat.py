@@ -2,9 +2,10 @@ from __future__ import annotations
 import uuid
 import traceback
 from datetime import datetime, timezone
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from langgraph.types import Command
 
+from app.api.deps import get_current_user
 from app.api.schemas.models import ChatRequest, ChatResponse
 from app.workflows.graph import graph
 from app.services.cache_service import get_cache
@@ -48,7 +49,8 @@ def _hitl_age_seconds(snapshot) -> float:
 
 
 @router.post("", response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
+async def chat(req: ChatRequest,
+               user: dict = Depends(get_current_user)) -> ChatResponse:
     trace_id = uuid.uuid4().hex
     print(f"\n[CHAT] trace_id={trace_id[:8]} thread={req.thread_id} msg={req.message[:60]!r}")
     config = {"configurable": {"thread_id": req.thread_id}}

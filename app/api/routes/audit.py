@@ -2,14 +2,18 @@
 from __future__ import annotations
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import select, desc
 
+from app.api.deps import require_permission
 from app.db.models.audit_log import AuditLog
 from app.db.models.notification import Notification
 from app.db.session import session_scope
 
 router = APIRouter(prefix="/logs", tags=["logs"])
+
+# 审计与通知记录都属于审计范畴，统一要求 audit.view
+_audit = require_permission("audit.view")
 
 
 @router.get("/audit")
@@ -17,6 +21,7 @@ async def list_audit(
     limit: int = Query(100, le=1000),
     action: Optional[str] = None,
     target_id: Optional[str] = None,
+    user: dict = Depends(_audit),
 ):
     """审计日志列表（倒序）。"""
     with session_scope() as s:
@@ -35,6 +40,7 @@ async def list_notifications(
     channel: Optional[str] = None,
     event: Optional[str] = None,
     target: Optional[str] = None,
+    user: dict = Depends(_audit),
 ):
     """通知记录列表（倒序）。"""
     with session_scope() as s:
@@ -50,7 +56,7 @@ async def list_notifications(
 
 
 @router.get("/audit/stats")
-async def audit_stats():
+async def audit_stats(user: dict = Depends(_audit)):
     """审计日志统计：按 action 分组。"""
     from sqlalchemy import func
     with session_scope() as s:
@@ -64,7 +70,7 @@ async def audit_stats():
 
 
 @router.get("/notifications/stats")
-async def notif_stats():
+async def notif_stats(user: dict = Depends(_audit)):
     from sqlalchemy import func
     with session_scope() as s:
         rows = s.execute(

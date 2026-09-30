@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     openclaw_enabled: bool = True
     openclaw_gateway_url: str = "http://127.0.0.1:18000"
     openclaw_api_key: str = "local-rag-key"
+    # 是否强制校验网关调用方带的 API Key
+    # /v1/* 与 /threads/* 是给 OpenClaw 调的，不能用 JWT 会话鉴权。
+    # 开启后网关必须在 Provider 里配好与 OPENCLAW_API_KEY 一致的 Key，
+    # 否则入站链路会收到 401。网关侧暂未配置时可临时设为 false。
+    openclaw_require_key: bool = True
     openclaw_feishu_app_id: str = ""
     openclaw_feishu_app_secret: str = ""
 

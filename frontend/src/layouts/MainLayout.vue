@@ -137,10 +137,10 @@ const MENU_GROUPS = [
   {
     key: "system", label: "系统管理", icon: "Setting",
     items: [
-      { path: "/feishu",        label: "飞书配置", icon: "ChatDotRound", perm: "sla.edit" },
+      { path: "/feishu",        label: "飞书配置", icon: "ChatDotRound", perm: "system.edit" },
       { path: "/audit",         label: "审计日志", icon: "Document",      perm: "audit.view" },
-      { path: "/notifications", label: "通知记录", icon: "Bell" },
-      { path: "/config",        label: "系统配置", icon: "Setting",       perm: "sla.edit" },
+      { path: "/notifications", label: "通知记录", icon: "Bell",          perm: "audit.view" },
+      { path: "/config",        label: "系统配置", icon: "Setting",       perm: "system.edit" },
     ],
   },
 ];

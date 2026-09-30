@@ -4,9 +4,10 @@ from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 
+from app.api.deps import require_permission
 from app.api.schemas.models import (
     RefundApprovalRequest, RefundCreateRequest, RefundResponse,
 )
@@ -19,6 +20,11 @@ from app.services.risk_service import auto_decision, check_risk
 
 router = APIRouter(prefix="/refunds", tags=["refunds"])
 
+_r_view = require_permission("refund.view")
+_r_create = require_permission("refund.create")
+_r_approve = require_permission("refund.approve")
+_r_execute = require_permission("refund.execute")
+
 
 def _to_resp(r: RefundRequest) -> RefundResponse:
     return RefundResponse(**r.to_dict())
@@ -28,6 +34,7 @@ def _to_resp(r: RefundRequest) -> RefundResponse:
 async def list_refunds(
     status: Optional[str] = None,
     keyword: Optional[str] = None,
+    user: dict = Depends(_r_view),
 ):
     from sqlalchemy import or_
     with session_scope() as s:
@@ -48,7 +55,8 @@ async def list_refunds(
 
 
 @router.post("", response_model=RefundResponse)
-async def create_refund(req: RefundCreateRequest):
+async def create_refund(req: RefundCreateRequest,
+                        user: dict = Depends(_r_create)):
     """创建退款单：自动 AI 初审 + 风控。"""
     rid = f"RF{uuid4().hex[:8].upper()}"
 
@@ -105,7 +113,7 @@ async def create_refund(req: RefundCreateRequest):
 
 
 @router.get("/{refund_id}")
-async def get_refund(refund_id: str):
+async def get_refund(refund_id: str, user: dict = Depends(_r_view)):
     with session_scope() as s:
         r = s.get(RefundRequest, refund_id)
         if r is None:
@@ -114,7 +122,8 @@ async def get_refund(refund_id: str):
 
 
 @router.post("/{refund_id}/approve")
-async def approve_refund(refund_id: str, req: RefundApprovalRequest):
+async def approve_refund(refund_id: str, req: RefundApprovalRequest,
+                         user: dict = Depends(_r_approve)):
     """人工审批：同意 / 驳回。"""
     with session_scope() as s:
         r = s.get(RefundRequest, refund_id)
@@ -153,7 +162,7 @@ async def approve_refund(refund_id: str, req: RefundApprovalRequest):
 
 
 @router.post("/{refund_id}/execute")
-async def execute_refund(refund_id: str):
+async def execute_refund(refund_id: str, user: dict = Depends(_r_execute)):
     """执行退款（模拟打款）。"""
     with session_scope() as s:
         r = s.get(RefundRequest, refund_id)
@@ -177,7 +186,7 @@ async def execute_refund(refund_id: str):
 
 
 @router.get("/stats/summary")
-async def refund_stats():
+async def refund_stats(user: dict = Depends(_r_view)):
     from sqlalchemy import func
     with session_scope() as s:
         rows = s.execute(

@@ -15,16 +15,20 @@ ROLE_PERMISSIONS = {
         "audit.view", "user.view", "user.edit",
         "customer.view", "customer.create",
         "sla.view", "sla.edit",
+        "knowledge.view", "knowledge.edit",
+        "system.view", "system.edit",
     ],
     "engineer": [
         "ticket.view", "ticket.accept", "ticket.reject", "ticket.resolve",
         "customer.view", "sla.view",
+        "knowledge.view",
     ],
     "agent": [
         "ticket.view", "ticket.create",
         "customer.view", "customer.create",
         "refund.view", "refund.create",
         "sla.view",
+        "knowledge.view",
     ],
 }
 
@@ -54,6 +58,10 @@ ALL_PERMISSIONS = [
     {"code": "user.edit",        "label": "编辑人员"},
     {"code": "sla.view",         "label": "查看 SLA"},
     {"code": "sla.edit",         "label": "编辑 SLA 规则"},
+    {"code": "knowledge.view",   "label": "查看知识库"},
+    {"code": "knowledge.edit",   "label": "维护知识库"},
+    {"code": "system.view",      "label": "查看系统配置"},
+    {"code": "system.edit",      "label": "修改系统配置"},
 ]
 
 

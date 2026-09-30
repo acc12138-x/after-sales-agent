@@ -6,13 +6,17 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 import yaml
 
-from app.api.routes.auth import get_current_user
+from app.api.deps import require_permission
 from app.integrations.feishu_client import test_connection
 from app.services.feishu_router import (
     dispatch, dispatch_to_user, list_config,
 )
 
 router = APIRouter(prefix="/feishu", tags=["feishu"])
+
+# 飞书配置属于系统配置：查看 system.view，改动/发测试消息 system.edit
+_fs_view = require_permission("system.view")
+_fs_edit = require_permission("system.edit")
 
 CONFIG_PATH = Path(__file__).parents[2] / "config" / "feishu_routes.yaml"
 ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
@@ -64,19 +68,19 @@ class TestDispatchRequest(BaseModel):
 # 配置
 # ============================================================
 @router.get("/config")
-async def get_config():
+async def get_config(user: dict = Depends(_fs_view)):
     """获取当前飞书配置（脱敏）。"""
     return list_config()
 
 
 @router.get("/status")
-async def status():
+async def status(user: dict = Depends(_fs_view)):
     """测试 App ID/Secret 是否有效。"""
     return test_connection()
 
 
 @router.put("/webhook")
-async def update_webhook(req: WebhookUpdate, user: dict = Depends(get_current_user)):
+async def update_webhook(req: WebhookUpdate, user: dict = Depends(_fs_edit)):
     """更新群 webhook（写进 .env，避免密钥进仓库）。"""
     if req.webhook:
         try:
@@ -102,13 +106,13 @@ async def update_webhook(req: WebhookUpdate, user: dict = Depends(get_current_us
 # 测试
 # ============================================================
 @router.post("/test-private")
-async def test_private(req: TestPrivateRequest, user: dict = Depends(get_current_user)):
+async def test_private(req: TestPrivateRequest, user: dict = Depends(_fs_edit)):
     """给指定用户私聊发测试消息。"""
     return dispatch_to_user(req.user_id, req.title, req.content)
 
 
 @router.post("/test-dispatch")
-async def test_dispatch(req: TestDispatchRequest, user: dict = Depends(get_current_user)):
+async def test_dispatch(req: TestDispatchRequest, user: dict = Depends(_fs_edit)):
     """模拟一个事件分发。"""
     return dispatch(req.event, req.title, req.content)
 
@@ -122,7 +126,7 @@ class ManualSendRequest(BaseModel):
 
 
 @router.post("/send")
-async def send_raw(req: ManualSendRequest, user: dict = Depends(get_current_user)):
+async def send_raw(req: ManualSendRequest, user: dict = Depends(_fs_edit)):
     """直接通过 open_id 发消息（调试用）。"""
     from app.integrations.feishu_client import send_private
     ok, err = send_private(req.open_id, req.text)

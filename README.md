@@ -243,7 +243,7 @@ flowchart LR
 | **数据** | MySQL 8 + SQLAlchemy 2.0 + PyMySQL | 业务数据（可切 SQLite） |
 | | Redis ∥ SQLite | 语义缓存（Redis 不可用自动降级） |
 | | SQLite | 工作流断点存储 |
-| **认证** | PyJWT + 加盐 SHA-256 | JWT 登录、角色与权限点校验 |
+| **认证** | PyJWT + 加盐 SHA-256 | JWT 登录；后台按权限点鉴权，网关侧按 API Key 鉴权；token 含密码指纹，改密即失效 |
 | **前端** | Vue 3 + Vite 5 | 管理后台 SPA |
 | | Element Plus + ECharts | UI 组件与可视化 |
 | | Axios + Vue Router | HTTP 封装（含 401 拦截）与 history 路由 |
@@ -341,7 +341,8 @@ npm run dev
 | `FEISHU_WEBHOOK_ENGINEER_GROUP` 等 | 飞书群机器人 webhook（事件广播用）。**敏感，只放 `.env`，不要写进 `feishu_routes.yaml`** | `https://open.feishu.cn/open-apis/bot/v2/hook/xxx` |
 | `OPENCLAW_ENABLED` | 是否启动时探活网关并在 `/health` 上报（**不是集成总闸**，`/v1` 端点始终可用） | `true` / `false` |
 | `OPENCLAW_GATEWAY_URL` | 网关地址（本地 `127.0.0.1:18000`；生产填你的服务器地址，**勿提交真实地址**） | `http://<your-gateway>:18000` |
-| `OPENCLAW_API_KEY` | 与网关侧约定的调用密钥 | 强随机值 |
+| `OPENCLAW_API_KEY` | 与网关侧约定的调用密钥（`/v1/*`、`/threads/*` 用它鉴权） | 强随机值 |
+| `OPENCLAW_REQUIRE_KEY` | 是否强制校验网关 API Key；网关侧未配好时可临时设 `false` | `true` |
 
 > 💡 **免外部依赖的最小配置**：`DB_MODE=sqlite` + `CACHE_BACKEND=sqlite` + `CHROMA_MODE=embedded` + `LLM_PROVIDER=ollama_native`，即可完全离线运行。
 
@@ -500,7 +501,7 @@ RAG 混合召回与拒答 · 16 类意图识别 · 规则引擎 · 工单状态�
 |---|---|
 | **飞书入站** | 本地自建事件回调（`challenge` 校验 + 消息解析 + 幂等去重），当前入站依赖外部网关 |
 | **可观测** | Prometheus `/metrics`、LangSmith 链路追踪（依赖已声明，尚未接入） |
-| **安全** | 业务路由的鉴权覆盖（目前仅审批台强校验）；默认口令强制修改 |
+| **安全** | 默认口令强制修改、登录失败次数限制、JWT 主动吊销列表 |
 | **异步化** | Celery 异步通知与任务队列（当前为同步调用） |
 | **数据库** | Alembic 迁移（当前使用 `create_all`）；生产环境 Checkpointer 迁移至 PostgreSQL |
 | **知识库** | 文档版本管理、权限过滤、人工修正答案回流 |
@@ -509,16 +510,34 @@ RAG 混合召回与拒答 · 16 类意图识别 · 规则引擎 · 工单状态�
 ### ⚠️ 已知限制
 
 - 业务库与人员表曾存在双表并存的历史设计，现已统一到 `users` 表
-- 部分业务路由尚未接入统一鉴权，仅适合内网/演示环境
 - 示例数据为模拟数据（订单/客户/物流）
 
 ---
 
 ## 🔐 安全提示
 
+### 鉴权模型
+
+全站分两套鉴权，**除下表白名单外，所有端点都必须通过其中之一**：
+
+| 调用方 | 方式 | 保护范围 |
+|---|---|---|
+| 管理后台（浏览器） | JWT 会话 + 权限点 | `/tickets` `/refunds` `/customers` `/knowledge` `/sla` `/logs` `/admin` `/feishu` `/users` `/engineers` `/chat` `/cache` |
+| OpenClaw 网关（服务端） | 共享 API Key（`X-API-Key` 或 `Authorization: Bearer`） | `/v1/*`、`/threads/*` |
+
+- 公开白名单仅 3 个：`POST /auth/login`、`GET /health`、`GET /`（仅返回应用名与文档入口）
+- 权限点按操作细分（`ticket.view` / `ticket.accept` / `refund.approve` / `knowledge.edit` / `system.edit` …），
+  并支持按人 `allow`/`deny` 覆盖
+- 改密码或管理员重置密码后，此前签发的 JWT **立即失效**（token 内含密码指纹）
+- 越权尝试返回 `403`；未登录返回 `401`
+
+### 上线清单
+
 - `.env` 已被 `.gitignore` 排除，**请勿提交任何真实密钥**
 - 仓库内 `.env.example` 仅含占位符，可作为配置模板
-- 上线前务必修改：`JWT_SECRET`、默认管理员密码、MySQL 口令、各平台 API Key
+- 上线前务必修改：`JWT_SECRET`、默认管理员密码、MySQL 口令、`OPENCLAW_API_KEY`、各平台 API Key
+- 不要移除 `.gitignore` 中 `data/`、`_*.py` 等规则的前导斜杠 ——
+  无锚定的 `data/` 会吞掉 `app/intent/data` 等源码；改完请跑 `python scripts/clone_check.py` 复核
 - 建议：密钥交由 Secret Manager 管理；管理后台启用 HTTPS
 
 ---

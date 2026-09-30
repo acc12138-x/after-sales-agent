@@ -2,13 +2,17 @@
 from __future__ import annotations
 import io
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 
+from app.api.deps import require_permission
 from app.api.schemas.models import KnowledgeIngestRequest
 from app.rag.chunking import chunk_document
 from app.workflows.nodes.rag_search import get_retriever
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
+
+_k_view = require_permission("knowledge.view")
+_k_edit = require_permission("knowledge.edit")
 
 
 # ---------- 工具：文件解析 ----------
@@ -59,7 +63,7 @@ def _parse_file(content_bytes: bytes, filename: str) -> str:
 
 # ---------- API ----------
 @router.post("/ingest")
-async def ingest(req: KnowledgeIngestRequest):
+async def ingest(req: KnowledgeIngestRequest, user: dict = Depends(_k_edit)):
     """手动粘贴文本入库。"""
     chunks = chunk_document(req.content, doc_id=req.doc_id, source=req.source)
     retriever = get_retriever()
@@ -83,6 +87,7 @@ async def ingest_file(
     file: UploadFile = File(...),
     doc_id: str = Form(...),
     source: str = Form(""),
+    user: dict = Depends(_k_edit),
 ):
     """上传文件（PDF / Word / Excel / txt / md）并入库。"""
     if not file.filename:
@@ -119,7 +124,7 @@ async def ingest_file(
 
 
 @router.get("/docs")
-async def list_docs():
+async def list_docs(user: dict = Depends(_k_view)):
     """列出所有文档（按 doc_id 分组）。"""
     retriever = get_retriever()
     try:
@@ -152,7 +157,7 @@ async def list_docs():
 
 
 @router.delete("/docs/{doc_id}")
-async def delete_doc(doc_id: str):
+async def delete_doc(doc_id: str, user: dict = Depends(_k_edit)):
     """删除某文档的所有切片。"""
     retriever = get_retriever()
     try:
@@ -184,7 +189,8 @@ class _UpdateDocReq(_PM):
 
 
 @router.put("/docs/{doc_id}")
-async def update_doc(doc_id: str, req: _UpdateDocReq):
+async def update_doc(doc_id: str, req: _UpdateDocReq,
+                     user: dict = Depends(_k_edit)):
     """更新文档：删除旧的切片，用新内容重新入库。
 
     - content：新文本（必填）
@@ -241,12 +247,12 @@ async def update_doc(doc_id: str, req: _UpdateDocReq):
 
 
 @router.get("/stats")
-async def stats():
+async def stats(user: dict = Depends(_k_view)):
     retriever = get_retriever()
     return {"total_chunks": retriever.count()}
 
 @router.get("/docs/{doc_id}/detail")
-async def get_doc_detail(doc_id: str):
+async def get_doc_detail(doc_id: str, user: dict = Depends(_k_view)):
     """返回某文档的完整内容（父块按顺序拼接）+ 所有切片。"""
     retriever = get_retriever()
     try:

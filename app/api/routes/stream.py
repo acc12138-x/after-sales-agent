@@ -4,10 +4,11 @@ import json
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from langgraph.types import Command
 
+from app.api.deps import get_gateway_caller
 from app.workflows.graph import graph
 from app.config.settings import get_settings
 
@@ -109,7 +110,8 @@ def build_fallback_answer(state: dict) -> str:
 # /runs/stream
 # ============================================================
 @router.post("/{thread_id}/runs/stream")
-async def stream_run(thread_id: str, request: Request):
+async def stream_run(thread_id: str, request: Request,
+                     caller: dict = Depends(get_gateway_caller)):
     body = await request.json()
     user_input = body.get("input", {})
     message = user_input.get("message", "")
@@ -162,7 +164,8 @@ async def stream_run(thread_id: str, request: Request):
 # /runs/resume（第 2 项：支持 message 字段 + 超时）
 # ============================================================
 @router.post("/{thread_id}/runs/resume")
-async def resume_run(thread_id: str, request: Request):
+async def resume_run(thread_id: str, request: Request,
+                     caller: dict = Depends(get_gateway_caller)):
     body = await request.json()
     config = {"configurable": {"thread_id": thread_id}}
     settings = get_settings()
@@ -222,7 +225,8 @@ async def resume_run(thread_id: str, request: Request):
 # /state
 # ============================================================
 @router.get("/{thread_id}/state")
-async def get_state(thread_id: str):
+async def get_state(thread_id: str,
+                    caller: dict = Depends(get_gateway_caller)):
     config = {"configurable": {"thread_id": thread_id}}
     snapshot = graph.get_state(config)
     if not snapshot:

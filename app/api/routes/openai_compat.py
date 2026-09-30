@@ -6,11 +6,12 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from langgraph.types import Command
 
+from app.api.deps import get_gateway_caller
 from app.workflows.graph import graph
 from app.services.permission import check_feishu_command
 
@@ -596,7 +597,8 @@ def _try_resume(tid, user_msg):
 
 
 @router.post("/chat/completions")
-async def chat_completions(req: ChatCompletionRequest, request: Request):
+async def chat_completions(req: ChatCompletionRequest, request: Request,
+                           caller: dict = Depends(get_gateway_caller)):
     raw_msg = _extract_raw_user_message(req.messages)
     user_msg = _strip_openclaw_wrapper(raw_msg)
     chat_id = _extract_chat_id(raw_msg)
@@ -696,7 +698,7 @@ async def chat_completions(req: ChatCompletionRequest, request: Request):
 
 
 @router.get("/models")
-async def list_models():
+async def list_models(caller: dict = Depends(get_gateway_caller)):
     return {
         "object": "list",
         "data": [

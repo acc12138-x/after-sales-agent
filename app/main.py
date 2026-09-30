@@ -6,9 +6,10 @@ import os
 os.environ.setdefault("NO_PROXY", "127.0.0.1,localhost,::1")
 os.environ.setdefault("no_proxy", "127.0.0.1,localhost,::1")
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.deps import require_permission
 from app.api.routes import approvals, chat, tickets, knowledge, stream, openai_compat, admin, engineers, audit, customers, refunds, sla, users, auth, feishu
 from app.api.schemas.models import HealthResponse
 import asyncio
@@ -16,6 +17,10 @@ from contextlib import asynccontextmanager
 from app.config.settings import get_settings
 
 settings = get_settings()
+
+# 缓存管理属于系统配置范畴
+_cache_view = require_permission("system.view")
+_cache_edit = require_permission("system.edit")
 
 
 # ============================================================
@@ -147,20 +152,20 @@ app.include_router(feishu.router)
 
 
 @app.get("/cache/stats")
-async def cache_stats():
+async def cache_stats(user: dict = Depends(_cache_view)):
     from app.services.cache_service import get_cache
     return get_cache().stats()
 
 
 @app.post("/cache/clear")
-async def cache_clear():
+async def cache_clear(user: dict = Depends(_cache_edit)):
     from app.services.cache_service import get_cache
     n = get_cache().clear_all()
     return {"cleared": n}
 
 
 @app.post("/cache/cleanup")
-async def cache_cleanup():
+async def cache_cleanup(user: dict = Depends(_cache_edit)):
     from app.services.cache_service import get_cache
     n = get_cache().clear_expired()
     return {"cleared": n}
@@ -174,6 +179,7 @@ async def health():
 
 @app.get("/")
 async def root():
+    """根路径：仅暴露应用名与文档入口，故意公开（部署探活用）。"""
     return {
         "name": settings.app_name,
         "version": "0.1.0",

@@ -3,10 +3,11 @@ from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app.api.deps import require_permission
 from app.api.schemas.models import (
     TicketCreateRequest, TicketResponse, TicketUpdateRequest,
 )
@@ -19,6 +20,13 @@ from app.services.sla_service import compute_deadline, get_ticket_sla_info
 
 
 router = APIRouter(prefix="/tickets", tags=["tickets"])
+
+# 按操作类型细分权限，避免「能看工单」就等于「能接单/改派」
+_t_view = require_permission("ticket.view")
+_t_create = require_permission("ticket.create")
+_t_accept = require_permission("ticket.accept")
+_t_reject = require_permission("ticket.reject")
+_t_resolve = require_permission("ticket.resolve")
 
 
 class RejectRequest(BaseModel):
@@ -235,7 +243,8 @@ def do_update_ticket(ticket_id: str, req: TicketUpdateRequest) -> dict:
 
 # ---------- API ----------
 @router.post("", response_model=TicketResponse)
-async def create_ticket(req: TicketCreateRequest) -> TicketResponse:
+async def create_ticket(req: TicketCreateRequest,
+                       user: dict = Depends(_t_create)) -> TicketResponse:
     t = do_create_ticket(
         device_model=req.device_model,
         error_code=req.error_code,
@@ -252,12 +261,13 @@ async def create_ticket(req: TicketCreateRequest) -> TicketResponse:
 
 
 @router.patch("/{ticket_id}")
-async def update_ticket(ticket_id: str, req: TicketUpdateRequest):
+async def update_ticket(ticket_id: str, req: TicketUpdateRequest,
+                        user: dict = Depends(_t_create)):
     return do_update_ticket(ticket_id, req)
 
 
 @router.get("/{ticket_id}")
-async def get_ticket(ticket_id: str):
+async def get_ticket(ticket_id: str, user: dict = Depends(_t_view)):
     with session_scope() as s:
         t = s.get(Ticket, ticket_id)
         if t is None:
@@ -270,6 +280,7 @@ async def list_all_tickets(
     status: Optional[str] = None,
     incomplete_only: bool = False,
     keyword: Optional[str] = None,
+    user: dict = Depends(_t_view),
 ):
     from sqlalchemy import or_
     with session_scope() as s:
@@ -347,7 +358,7 @@ def _transition(ticket_id: str, new_status: str, extra: dict = None) -> dict:
 
 
 @router.post("/{ticket_id}/accept")
-async def accept_ticket(ticket_id: str):
+async def accept_ticket(ticket_id: str, user: dict = Depends(_t_accept)):
     r = _transition(ticket_id, "accepted")
     notify(target=r["assigned_to"], event="ticket_accepted",
            title=f"工单 {ticket_id} 已接单")
@@ -358,7 +369,8 @@ async def accept_ticket(ticket_id: str):
 
 
 @router.post("/{ticket_id}/reject")
-async def reject_ticket(ticket_id: str, req: RejectRequest):
+async def reject_ticket(ticket_id: str, req: RejectRequest,
+                        user: dict = Depends(_t_reject)):
     with session_scope() as s:
         t = s.get(Ticket, ticket_id)
         if t is None:
@@ -412,23 +424,25 @@ async def reject_ticket(ticket_id: str, req: RejectRequest):
 
 
 @router.post("/{ticket_id}/start")
-async def start_ticket(ticket_id: str):
+async def start_ticket(ticket_id: str, user: dict = Depends(_t_accept)):
     return _transition(ticket_id, "in_progress")
 
 
 @router.post("/{ticket_id}/resolve")
-async def resolve_ticket(ticket_id: str, req: ResolveRequest):
+async def resolve_ticket(ticket_id: str, req: ResolveRequest,
+                         user: dict = Depends(_t_resolve)):
     return _transition(ticket_id, "resolved", extra={"resolved_note": req.note})
 
 
 @router.post("/{ticket_id}/close")
-async def close_ticket(ticket_id: str):
+async def close_ticket(ticket_id: str, user: dict = Depends(_t_resolve)):
     return _transition(ticket_id, "closed")
 
 
 # ---------- 审计 / 通知 ----------
 @router.get("/{ticket_id}/audit")
-async def get_ticket_audit(ticket_id: str, limit: int = 50):
+async def get_ticket_audit(ticket_id: str, limit: int = 50,
+                           user: dict = Depends(_t_view)):
     from app.db.models.audit_log import AuditLog
     with session_scope() as s:
         rows = s.execute(
@@ -441,7 +455,8 @@ async def get_ticket_audit(ticket_id: str, limit: int = 50):
 
 
 @router.get("/{ticket_id}/notifications")
-async def get_ticket_notifications(ticket_id: str, limit: int = 50):
+async def get_ticket_notifications(ticket_id: str, limit: int = 50,
+                                   user: dict = Depends(_t_view)):
     from app.db.models.notification import Notification
     with session_scope() as s:
         t = s.get(Ticket, ticket_id)

@@ -4,10 +4,17 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Dict
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
+from app.api.deps import get_current_user, require_permission
+
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+# 系统配置读写；仪表盘统计对任何已登录用户开放
+# （侧边栏「监控看板」对所有角色可见，若收紧会让普通角色点进去就 403）
+_sys_view = require_permission("system.view")
+_sys_edit = require_permission("system.edit")
 
 ENV_PATH = Path(__file__).parents[3] / ".env"
 
@@ -82,7 +89,7 @@ def _mask(v: str) -> str:
 
 
 @router.get("/config")
-async def get_config():
+async def get_config(user: dict = Depends(_sys_view)):
     env = _read_env()
     result = {}
     for k in EDITABLE_KEYS:
@@ -92,7 +99,7 @@ async def get_config():
 
 
 @router.post("/config")
-async def update_config(payload: ConfigUpdate):
+async def update_config(payload: ConfigUpdate, user: dict = Depends(_sys_edit)):
     updates = {}
     for k, v in (payload.values or {}).items():
         if k not in EDITABLE_KEYS:
@@ -111,7 +118,7 @@ async def update_config(payload: ConfigUpdate):
 
 
 @router.post("/reload")
-async def reload_all():
+async def reload_all(user: dict = Depends(_sys_edit)):
     """热重载：清掉 settings / embeddings / LLM / rules / intents 缓存。"""
     reloaded = []
 
@@ -175,7 +182,7 @@ async def reload_all():
 
 
 @router.get("/provider-templates")
-async def provider_templates():
+async def provider_templates(user: dict = Depends(_sys_view)):
     """从 YAML 加载 provider 模板。"""
     import yaml
     from pathlib import Path
@@ -188,7 +195,7 @@ async def provider_templates():
 
 
 @router.get("/providers")
-async def list_providers():
+async def list_providers(user: dict = Depends(_sys_view)):
     """兼容旧接口。"""
     return await provider_templates()
 
@@ -197,7 +204,7 @@ async def list_providers():
 # Dashboard 聚合数据
 # ============================================================
 @router.get("/dashboard/stats")
-async def dashboard_stats():
+async def dashboard_stats(user: dict = Depends(get_current_user)):
     """运营仪表盘聚合数据。"""
     from datetime import datetime, timedelta
     from sqlalchemy import func, select
@@ -301,7 +308,7 @@ async def dashboard_stats():
     return result
 
 @router.get("/openclaw/status")
-async def openclaw_status():
+async def openclaw_status(user: dict = Depends(_sys_view)):
     """探测 OpenClaw 网关是否可达（复用统一探活，结果与 /health 一致）。"""
     from app.config.settings import get_settings
     from app.gateway.health import probe
@@ -312,7 +319,7 @@ async def openclaw_status():
 
 
 @router.get("/skills")
-async def list_skills():
+async def list_skills(user: dict = Depends(_sys_view)):
     """列出 OpenClaw Skill 的 JSON Schema（供网关侧注册/发现工具）。"""
     from app.gateway.skills import list_skill_schemas
 
