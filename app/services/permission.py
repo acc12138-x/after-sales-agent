@@ -43,7 +43,8 @@ def get_user_by_feishu(open_id: str) -> Optional[dict]:
         return _user_to_dict(u)
 
 
-def _has_perm(perms: list, required: str) -> bool:
+def has_perm(perms: list, required: str) -> bool:
+    """判断权限集合是否满足 required。`*` 与 `xxx.*` 都视为通过。"""
     if not required:
         return True
     if "*" in perms or required in perms:
@@ -76,7 +77,7 @@ def check_feishu_command(open_id: str, action: str) -> dict:
         return {"allowed": True, "user": user, "reason": "no_required"}
 
     perms = user.get("effective_permissions", [])
-    if not _has_perm(perms, required):
+    if not has_perm(perms, required):
         return {
             "allowed": False,
             "reason": f"角色「{ROLE_LABELS.get(user.get('role'), user.get('role'))}」无权执行 `{action}`（缺 {required}）",

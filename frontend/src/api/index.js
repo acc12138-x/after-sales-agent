@@ -88,6 +88,7 @@ export default {
   createUser: (data) => http.post("/users", data),
   updateUser: (id, data) => http.put("/users/" + id, data),
   deleteUser: (id) => http.delete("/users/" + id),
+  resetUserPassword: (id, data) => http.post("/users/" + id + "/reset-password", data),
   toggleUserStatus: (id) => http.post("/users/" + id + "/toggle-status"),
   getUserPermissions: (id) => http.get("/users/" + id + "/permissions"),
   checkUserPermission: (id, perm) => http.post("/users/" + id + "/check", { perm }),

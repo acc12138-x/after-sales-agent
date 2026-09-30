@@ -37,7 +37,7 @@
         >
           待绑定飞书账号{{ pendingList.length ? " (" + pendingList.length + ")" : "" }}
         </el-button>
-        <el-button type="primary" :icon="Plus" @click="openAdd">新增人员</el-button>
+        <el-button v-if="isAdmin" type="primary" :icon="Plus" @click="openAdd">新增人员</el-button>
       </div>
     </div>
 
@@ -88,15 +88,18 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="200" fixed="right">
+        <el-table-column label="操作" width="270" fixed="right">
           <template #default="{ row }">
-            <el-button size="small" :type="row.status === 'online' ? 'warning' : 'success'" link @click="toggleStatus(row)">
+            <el-button v-if="canEdit" size="small" :type="row.status === 'online' ? 'warning' : 'success'" link @click="toggleStatus(row)">
               {{ row.status === "online" ? "下线" : "上线" }}
             </el-button>
-            <el-button size="small" type="primary" link @click="openEdit(row)">
+            <el-button v-if="canEdit" size="small" type="primary" link @click="openEdit(row)">
               <el-icon><Edit /></el-icon> 编辑
             </el-button>
-            <el-popconfirm title="确认删除？" @confirm="doDelete(row)">
+            <el-button v-if="isAdmin" size="small" link title="重置该账号密码" @click="resetPwd(row)">
+              <el-icon><Key /></el-icon> 密码
+            </el-button>
+            <el-popconfirm v-if="isAdmin" title="确认删除？" @confirm="doDelete(row)">
               <template #reference>
                 <el-button size="small" type="danger" link>
                   <el-icon><Delete /></el-icon>
@@ -120,6 +123,11 @@
           <el-form :model="form" label-width="100px" style="margin-top:12px;">
             <el-form-item label="姓名">
               <el-input v-model="form.name" placeholder="如 王工" />
+            </el-form-item>
+            <!-- 仅新增时出现：注册新账号必须设初始密码，否则该账号无法登录 -->
+            <el-form-item v-if="!isEdit" label="初始密码">
+              <el-input v-model="form.password" type="password" show-password
+                        placeholder="至少 6 位，创建后告知本人，由其自行修改" />
             </el-form-item>
             <el-form-item label="角色">
               <el-select v-model="form.role" style="width:100%;">
@@ -284,12 +292,20 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from "vue";
-import { ElMessage } from "element-plus";
-import { Refresh, Search, Plus, Edit, Delete, Link } from "@element-plus/icons-vue";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { Refresh, Search, Plus, Edit, Delete, Link, Key } from "@element-plus/icons-vue";
 import api from "../api";
 
 const users = ref([]);
 const loading = ref(false);
+
+// 当前登录者与按钮显隐（后端仍会强制校验，这里只是别让用户点了才发现没权限）
+const me = ref({});
+const isAdmin = computed(() => (me.value && me.value.role) === "admin");
+const canEdit = computed(() => {
+  const p = (me.value && me.value.effective_permissions) || [];
+  return p.includes("*") || p.includes("user.edit");
+});
 const meta = ref({ roles: [], role_permissions: {}, all_permissions: [] });
 
 const filters = reactive({ role: "", status: "", keyword: "" });
@@ -367,6 +383,8 @@ const activeTab = ref("basic");
 const defaultForm = () => ({
   id: null,
   name: "",
+  // 注册新账号必须给初始密码（后端会校验 ≥6 位）
+  password: "",
   role: "engineer",
   job: "",
   dept: "",
@@ -420,6 +438,9 @@ function openEdit(row) {
 
 async function save() {
   if (!form.value.name.trim()) return ElMessage.warning("请输入姓名");
+  if (!isEdit.value && (form.value.password || "").length < 6) {
+    return ElMessage.warning("请设置至少 6 位的初始密码（否则该账号无法登录）");
+  }
   saving.value = true;
   try {
     const payload = {
@@ -441,8 +462,9 @@ async function save() {
       await api.updateUser(form.value.id, payload);
       ElMessage.success(`✅ 已保存 ${form.value.name}`);
     } else {
+      payload.password = form.value.password;
       await api.createUser(payload);
-      ElMessage.success(`✅ 已创建 ${form.value.name}`);
+      ElMessage.success(`✅ 已创建 ${form.value.name}，请把初始密码告知本人`);
     }
     dialogVisible.value = false;
     await load();
@@ -456,6 +478,31 @@ async function doDelete(row) {
     await api.deleteUser(row.id);
     ElMessage.success(`✅ 已删除 ${row.name}`);
     await load();
+  } catch (e) { /* 拦截器提示 */ }
+}
+
+/** 管理员重置他人密码（只有管理员能调，后端会再次校验） */
+async function resetPwd(row) {
+  let value = "";
+  try {
+    const r = await ElMessageBox.prompt(
+      `为「${row.name}」设置新密码（至少 6 位）。重置后该账号当前的登录状态会立即失效。`,
+      "重置密码",
+      {
+        confirmButtonText: "确定重置",
+        cancelButtonText: "取消",
+        inputType: "password",
+        inputPlaceholder: "新密码",
+        inputValidator: (v) => (v && v.trim().length >= 6) || "密码至少 6 位",
+      }
+    );
+    value = r.value.trim();
+  } catch {
+    return;   // 用户取消
+  }
+  try {
+    const res = await api.resetUserPassword(row.id, { new_password: value });
+    ElMessage.success(res.message || `已重置 ${row.name} 的密码`);
   } catch (e) { /* 拦截器提示 */ }
 }
 
@@ -554,6 +601,16 @@ async function doManualRecord() {
 }
 
 onMounted(async () => {
+  // 当前登录者：仅用于按钮显隐，真正的权限由后端强制校验
+  try {
+    const cached = localStorage.getItem("auth_user");
+    if (cached) me.value = JSON.parse(cached);
+  } catch (e) { /* 忽略 */ }
+  try {
+    me.value = await api.me();
+    localStorage.setItem("auth_user", JSON.stringify(me.value));
+  } catch (e) { /* 拦截器已提示 */ }
+
   await loadMeta();
   await load();
   await loadPending();

@@ -3,10 +3,11 @@ from __future__ import annotations
 import json
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app.api.deps import get_current_user, require_admin, require_permission
 from app.db.models.user import (
     ALL_PERMISSIONS, ROLE_LABELS, ROLE_PERMISSIONS, User,
 )
@@ -14,12 +15,35 @@ from app.db.session import session_scope
 
 router = APIRouter(prefix="/users", tags=["users"])
 
+# 列表 / 详情：有「查看人员」权限即可（主管、管理员）
+_view = require_permission("user.view")
+# 编辑资料 / 飞书绑定 / 重建负载：需要「编辑人员」权限
+_edit = require_permission("user.edit")
+
+
+def _count_admins(s) -> int:
+    return len(s.execute(select(User).where(User.role == "admin")).scalars().all())
+
+
+def _next_user_id(s) -> str:
+    """生成不重复的 user_id：取现有最大编号 +1。
+
+    原实现用 len(rows)+1，删过人之后会撞号。
+    """
+    mx = 0
+    for v in s.execute(select(User.user_id)).scalars().all():
+        if v and v.startswith("U") and v[1:].isdigit():
+            mx = max(mx, int(v[1:]))
+    return f"U{mx + 1:04d}"
+
 
 # ============================================================
 # Schemas
 # ============================================================
 class UserCreate(BaseModel):
     name: str
+    # 注册新账号必须给初始密码，否则建出来的账号无法登录
+    password: str = ""
     role: str = "engineer"
     job: str = ""
     skills: List[str] = []
@@ -32,6 +56,10 @@ class UserCreate(BaseModel):
     feishu_chat_id: str = ""
     dept: str = ""
     permissions: dict = {}
+
+
+class ResetPasswordRequest(BaseModel):
+    new_password: str = ""
 
 
 class UserUpdate(BaseModel):
@@ -58,7 +86,7 @@ class PermissionCheck(BaseModel):
 # 元数据
 # ============================================================
 @router.get("/meta")
-async def get_meta():
+async def get_meta(user: dict = Depends(get_current_user)):
     """返回角色、权限字典，供前端下拉。"""
     return {
         "roles": [
@@ -85,7 +113,7 @@ class PendingRecordRequest(BaseModel):
 
 
 @router.get("/pending-bindings")
-async def list_pending_bindings():
+async def list_pending_bindings(user: dict = Depends(_edit)):
     """列出收到过消息、但还没绑定到人员的飞书 open_id。"""
     from app.services.binding_service import list_pending
     items = list_pending()
@@ -93,7 +121,7 @@ async def list_pending_bindings():
 
 
 @router.post("/pending-bindings/bind")
-async def bind_pending_binding(req: PendingBindRequest):
+async def bind_pending_binding(req: PendingBindRequest, user: dict = Depends(_edit)):
     """把某个 open_id 绑定到指定人员。"""
     from app.services.binding_service import bind
     try:
@@ -105,7 +133,7 @@ async def bind_pending_binding(req: PendingBindRequest):
 
 
 @router.post("/pending-bindings/record")
-async def record_pending_binding(req: PendingRecordRequest):
+async def record_pending_binding(req: PendingRecordRequest, user: dict = Depends(_edit)):
     """手动把一个 open_id 登记进待绑定列表。
 
     入站链路（OpenClaw / 飞书事件回调）打通后会自动登记；
@@ -119,7 +147,7 @@ async def record_pending_binding(req: PendingRecordRequest):
 
 
 @router.delete("/pending-bindings/{open_id}")
-async def dismiss_pending_binding(open_id: str):
+async def dismiss_pending_binding(open_id: str, user: dict = Depends(_edit)):
     """忽略（删除）一条待绑定记录。"""
     from app.services.binding_service import dismiss
     if not dismiss(open_id):
@@ -134,6 +162,7 @@ async def dismiss_pending_binding(open_id: str):
 async def list_users(
     role: Optional[str] = None,
     status: Optional[str] = None,
+    user: dict = Depends(_view),
 ):
     with session_scope() as s:
         q = select(User).order_by(User.role, User.current_load, User.id)
@@ -149,7 +178,7 @@ async def list_users(
 
 
 @router.get("/{user_id}")
-async def get_user(user_id: int):
+async def get_user(user_id: int, user: dict = Depends(_view)):
     with session_scope() as s:
         u = s.get(User, user_id)
         if u is None:
@@ -158,24 +187,35 @@ async def get_user(user_id: int):
 
 
 # ============================================================
-# 创建
+# 创建（注册新账号）—— 仅管理员
 # ============================================================
 @router.post("")
-async def create_user(req: UserCreate):
+async def create_user(req: UserCreate, admin: dict = Depends(require_admin)):
+    """注册新账号。**仅管理员可调用。**
+
+    必须给初始密码，否则建出来的账号无法登录。
+    """
+    from app.services.auth_service import hash_password
+
+    name = (req.name or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="用户名不能为空")
+    pwd = (req.password or "").strip()
+    if len(pwd) < 6:
+        raise HTTPException(status_code=400, detail="初始密码至少 6 位")
+    if req.role not in ROLE_LABELS:
+        raise HTTPException(status_code=400, detail=f"未知角色：{req.role}")
+
     with session_scope() as s:
         exists = s.execute(
-            select(User).where(User.name == req.name)
+            select(User).where(User.name == name)
         ).scalar_one_or_none()
         if exists:
-            raise HTTPException(status_code=409, detail=f"人员 {req.name} 已存在")
-
-        # 生成 user_id
-        cnt = s.execute(select(User)).scalars().all()
-        uid = f"U{(len(cnt) + 1):04d}"
+            raise HTTPException(status_code=409, detail=f"人员 {name} 已存在")
 
         u = User(
-            user_id=uid,
-            name=req.name,
+            user_id=_next_user_id(s),
+            name=name,
             role=req.role,
             job=req.job,
             skills=json.dumps(req.skills, ensure_ascii=False),
@@ -189,6 +229,7 @@ async def create_user(req: UserCreate):
             feishu_chat_id=req.feishu_chat_id,
             dept=req.dept,
             permissions=json.dumps(req.permissions or {}, ensure_ascii=False),
+            password_hash=hash_password(pwd),
         )
         s.add(u)
         s.flush()
@@ -199,16 +240,38 @@ async def create_user(req: UserCreate):
 # 更新
 # ============================================================
 @router.put("/{user_id}")
-async def update_user(user_id: int, req: UserUpdate):
+async def update_user(user_id: int, req: UserUpdate,
+                      me: dict = Depends(_edit)):
+    """编辑人员资料。
+
+    ⚠️ 角色与权限覆盖**仅管理员**可改 —— 否则有 `user.edit` 的主管
+    可以把自己改成 admin，属于越权提权。
+    """
+    is_admin = me.get("role") == "admin"
+    if (req.role is not None or req.permissions is not None) and not is_admin:
+        raise HTTPException(status_code=403, detail="仅管理员可修改角色或权限")
+
     with session_scope() as s:
         u = s.get(User, user_id)
         if u is None:
             raise HTTPException(status_code=404, detail="人员不存在")
 
-        if req.name is not None:
+        if req.name is not None and req.name != u.name:
+            dup = s.execute(
+                select(User).where(User.name == req.name)
+            ).scalar_one_or_none()
+            if dup:
+                raise HTTPException(status_code=409, detail=f"用户名 {req.name} 已被占用")
             u.name = req.name
-        if req.role is not None:
+
+        if req.role is not None and req.role != u.role:
+            if req.role not in ROLE_LABELS:
+                raise HTTPException(status_code=400, detail=f"未知角色：{req.role}")
+            # 不允许把最后一名管理员降级，否则系统再没人能管账号
+            if u.role == "admin" and _count_admins(s) <= 1:
+                raise HTTPException(status_code=400, detail="系统至少需要保留一名管理员")
             u.role = req.role
+
         if req.job is not None:
             u.job = req.job
         if req.skills is not None:
@@ -237,10 +300,14 @@ async def update_user(user_id: int, req: UserUpdate):
 
 
 # ============================================================
-# 删除
+# 删除 —— 仅管理员
 # ============================================================
 @router.delete("/{user_id}")
-async def delete_user(user_id: int):
+async def delete_user(user_id: int, admin: dict = Depends(require_admin)):
+    """删除账号。**仅管理员可调用。**"""
+    if user_id == admin.get("id"):
+        raise HTTPException(status_code=400, detail="不能删除自己的账号")
+
     with session_scope() as s:
         u = s.get(User, user_id)
         if u is None:
@@ -251,16 +318,41 @@ async def delete_user(user_id: int):
                 detail=f"该人员还有 {u.current_load or 0} 个进行中工单，无法删除",
             )
         if u.role == "admin":
-            raise HTTPException(status_code=400, detail="不能删除管理员")
+            raise HTTPException(status_code=400, detail="不能删除管理员账号")
+        name = u.name
         s.delete(u)
-    return {"deleted": user_id}
+    return {"deleted": user_id, "name": name}
+
+
+# ============================================================
+# 重置他人密码 —— 仅管理员
+# ============================================================
+@router.post("/{user_id}/reset-password")
+async def reset_password(user_id: int, req: ResetPasswordRequest,
+                         admin: dict = Depends(require_admin)):
+    """管理员重置某个账号的密码。该账号现有登录状态会立即失效。"""
+    from app.services.auth_service import hash_password
+
+    pwd = (req.new_password or "").strip()
+    if len(pwd) < 6:
+        raise HTTPException(status_code=400, detail="新密码至少 6 位")
+
+    with session_scope() as s:
+        u = s.get(User, user_id)
+        if u is None:
+            raise HTTPException(status_code=404, detail="人员不存在")
+        u.password_hash = hash_password(pwd)
+        name = u.name
+
+    return {"status": "ok", "user_id": user_id, "name": name,
+            "message": f"已重置「{name}」的密码，其现有登录状态已失效"}
 
 
 # ============================================================
 # 状态切换
 # ============================================================
 @router.post("/{user_id}/toggle-status")
-async def toggle_status(user_id: int):
+async def toggle_status(user_id: int, user: dict = Depends(_edit)):
     with session_scope() as s:
         u = s.get(User, user_id)
         if u is None:
@@ -274,7 +366,7 @@ async def toggle_status(user_id: int):
 # 权限查询
 # ============================================================
 @router.get("/{user_id}/permissions")
-async def get_user_permissions(user_id: int):
+async def get_user_permissions(user_id: int, user: dict = Depends(_view)):
     with session_scope() as s:
         u = s.get(User, user_id)
         if u is None:
@@ -289,7 +381,8 @@ async def get_user_permissions(user_id: int):
 
 
 @router.post("/{user_id}/check")
-async def check_permission(user_id: int, req: PermissionCheck):
+async def check_permission(user_id: int, req: PermissionCheck,
+                           user: dict = Depends(_view)):
     with session_scope() as s:
         u = s.get(User, user_id)
         if u is None:
@@ -310,7 +403,8 @@ class ResolveOpenIdRequest(BaseModel):
 
 
 @router.post("/{user_id}/resolve-open-id")
-async def resolve_open_id(user_id: int, req: ResolveOpenIdRequest):
+async def resolve_open_id(user_id: int, req: ResolveOpenIdRequest,
+                          user: dict = Depends(_edit)):
     """用手机号 / 邮箱反查【本应用】的 open_id 并写入该人员。
 
     飞书 open_id 按应用隔离：必须是「发消息那个应用」查出来的才有效，
@@ -363,7 +457,7 @@ async def resolve_open_id(user_id: int, req: ResolveOpenIdRequest):
 # 重建负载
 # ============================================================
 @router.post("/rebuild-load")
-async def rebuild_load():
+async def rebuild_load(user: dict = Depends(_edit)):
     """从 tickets 表重建每个人员的当前负载。"""
     from sqlalchemy import func
     from app.db.models.ticket import Ticket

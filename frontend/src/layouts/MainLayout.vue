@@ -35,12 +35,38 @@
             <div class="user-name">{{ user.name }}</div>
             <div class="user-role">{{ user.role_label }}</div>
           </div>
-          <el-button size="small" link @click="doLogout" title="退出">
+          <el-button size="small" link title="修改密码" @click="openPwdDialog">
+            <el-icon><Key /></el-icon>
+          </el-button>
+          <el-button size="small" link title="退出" @click="doLogout">
             <el-icon><SwitchButton /></el-icon>
           </el-button>
         </div>
       </div>
     </el-aside>
+
+    <!-- 修改自己的密码（任何账号都有） -->
+    <el-dialog v-model="pwdDialog" title="修改密码" width="420px" append-to-body>
+      <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-width="86px">
+        <el-form-item label="原密码" prop="old_password">
+          <el-input v-model="pwdForm.old_password" type="password" show-password
+                    autocomplete="current-password" placeholder="当前使用的密码" />
+        </el-form-item>
+        <el-form-item label="新密码" prop="new_password">
+          <el-input v-model="pwdForm.new_password" type="password" show-password
+                    autocomplete="new-password" placeholder="至少 6 位" />
+        </el-form-item>
+        <el-form-item label="确认新密码" prop="confirm">
+          <el-input v-model="pwdForm.confirm" type="password" show-password
+                    autocomplete="new-password" @keyup.enter="doChangePwd" />
+        </el-form-item>
+      </el-form>
+      <div class="pwd-tip">修改成功后当前登录会失效，需要用新密码重新登录。</div>
+      <template #footer>
+        <el-button @click="pwdDialog = false">取消</el-button>
+        <el-button type="primary" :loading="pwdLoading" @click="doChangePwd">确定</el-button>
+      </template>
+    </el-dialog>
 
     <el-container>
       <el-header class="topbar">
@@ -55,12 +81,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from "vue";
+import { ref, reactive, computed, onMounted } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { ElMessageBox, ElMessage } from "element-plus";
 import {
   Tools, ChatDotRound, Collection, Tickets, UserFilled, Money, CircleCheck,
-  AlarmClock, User, Document, Bell, Setting, DataLine, SwitchButton,
+  AlarmClock, User, Document, Bell, Setting, DataLine, SwitchButton, Key,
 } from "@element-plus/icons-vue";
 import api from "../api";
 
@@ -155,6 +181,58 @@ async function doLogout() {
   router.push("/login");
 }
 
+// ---------- 修改自己的密码 ----------
+const pwdDialog = ref(false);
+const pwdLoading = ref(false);
+const pwdFormRef = ref(null);
+const pwdForm = reactive({ old_password: "", new_password: "", confirm: "" });
+
+const pwdRules = {
+  old_password: [{ required: true, message: "请输入原密码", trigger: "blur" }],
+  new_password: [
+    { required: true, message: "请输入新密码", trigger: "blur" },
+    { min: 6, message: "新密码至少 6 位", trigger: "blur" },
+  ],
+  confirm: [
+    { required: true, message: "请再次输入新密码", trigger: "blur" },
+    {
+      validator: (rule, value, cb) =>
+        value === pwdForm.new_password ? cb() : cb(new Error("两次输入不一致")),
+      trigger: "blur",
+    },
+  ],
+};
+
+function openPwdDialog() {
+  pwdForm.old_password = "";
+  pwdForm.new_password = "";
+  pwdForm.confirm = "";
+  pwdDialog.value = true;
+}
+
+async function doChangePwd() {
+  try {
+    await pwdFormRef.value.validate();
+  } catch { return; }
+
+  pwdLoading.value = true;
+  try {
+    await api.changePassword({
+      old_password: pwdForm.old_password,
+      new_password: pwdForm.new_password,
+    });
+    pwdDialog.value = false;
+    ElMessage.success("密码已修改，请用新密码重新登录");
+    localStorage.removeItem("auth_token");
+    localStorage.removeItem("auth_user");
+    router.push("/login");
+  } catch (e) {
+    // 拦截器已弹出具体原因（原密码错误 / 位数不足 等）
+  } finally {
+    pwdLoading.value = false;
+  }
+}
+
 onMounted(async () => {
   const cached = localStorage.getItem("auth_user");
   if (cached) {
@@ -222,6 +300,13 @@ onMounted(async () => {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .user-role { font-size: 11px; color: #6b7280; }
+
+.pwd-tip {
+  margin-top: -6px;
+  font-size: 12px;
+  color: #9ca3af;
+  line-height: 1.5;
+}
 
 .topbar {
   background: white; border-bottom: 1px solid #e5e7eb;

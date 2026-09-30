@@ -28,14 +28,25 @@ def verify_password(password: str, stored_hash: str) -> bool:
     return hash_password(password, salt) == stored_hash
 
 
-def create_token(user_id: int, name: str, role: str) -> str:
-    """签发 JWT。"""
+def pwd_fingerprint(password_hash: str) -> str:
+    """密码指纹：写进 JWT，改密后旧 token 立即失效。
+
+    JWT 是无状态的，正常改了密码旧 token 仍然有效（最长 jwt_expire_hours）。
+    把密码 hash 的摘要放进 token，每次请求比对一次，即可实现
+    「改密后其他设备被踢下线」。
+    """
+    return hashlib.sha256((password_hash or "").encode("utf-8")).hexdigest()[:16]
+
+
+def create_token(user_id: int, name: str, role: str, pv: str = "") -> str:
+    """签发 JWT。`pv` 为密码指纹，见 pwd_fingerprint()。"""
     s = get_settings()
     expire_hours = int(getattr(s, "jwt_expire_hours", 168))
     payload = {
         "sub": str(user_id),
         "name": name,
         "role": role,
+        "pv": pv,
         "exp": datetime.now(timezone.utc) + timedelta(hours=expire_hours),
         "iat": datetime.now(timezone.utc),
     }
@@ -51,6 +62,14 @@ def decode_token(token: str) -> Optional[dict]:
         return None
 
 
+def _user_dict(u: User) -> dict:
+    """在 session 内把 User 转成 dict，附带权限与密码指纹。"""
+    d = u.to_dict()
+    d["effective_permissions"] = sorted(u.effective_permissions())
+    d["pv"] = pwd_fingerprint(u.password_hash or "")
+    return d
+
+
 def authenticate(name: str, password: str) -> Optional[dict]:
     """姓名 + 密码登录。成功返回 user dict，失败返回 None。"""
     from sqlalchemy import select
@@ -62,11 +81,7 @@ def authenticate(name: str, password: str) -> Optional[dict]:
             return None
         if not verify_password(password, u.password_hash):
             return None
-
-        # 在 session 内转 dict
-        d = u.to_dict()
-        d["effective_permissions"] = sorted(u.effective_permissions())
-        return d
+        return _user_dict(u)
 
 
 def get_user_by_id(user_id: int) -> Optional[dict]:
@@ -74,6 +89,4 @@ def get_user_by_id(user_id: int) -> Optional[dict]:
         u = s.get(User, user_id)
         if u is None:
             return None
-        d = u.to_dict()
-        d["effective_permissions"] = sorted(u.effective_permissions())
-        return d
+        return _user_dict(u)
