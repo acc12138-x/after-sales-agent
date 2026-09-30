@@ -46,6 +46,7 @@ class KnowledgeIngestRequest(BaseModel):
 class HealthResponse(BaseModel):
     status: str
     version: str = "0.1.0"
+    openclaw: Optional[Dict[str, Any]] = None
 
 
 # ============ 工程师 ============

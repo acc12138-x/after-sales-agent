@@ -20,13 +20,14 @@
 - [核心特性](#-核心特性)
 - [系统架构](#-系统架构)
 - [Agent 工作流](#-agent-工作流)
+- [OpenClaw 接入](#-openclaw-接入)
 - [技术栈](#-技术栈)
 - [快速开始](#-快速开始)
 - [配置说明](#-配置说明)
 - [项目结构](#-项目结构)
 - [主要 API](#-主要-api)
 - [RAG 评估](#-rag-评估)
-- [测试](#-测试)
+- [测试与排障](#-测试与排障)
 - [Docker 部署](#-docker-部署)
 - [路线图与已知限制](#-路线图与已知限制)
 - [安全提示](#-安全提示)
@@ -68,6 +69,7 @@
 - **字段完整度**：允许「待补充」建单，并拦截不完整工单进入处理
 - **SLA 时效**：YAML 规则 + 后台每 5 分钟扫描，预警/超时分级通知
 - **退款/赔付**：AI 初审（金额 + 客户信用）+ 风控评分（高频退款/退款率/投诉数/短期集中）→ 自动通过或转人工审批 → 执行打款
+- **双通道通知**：关键事件**私聊本人 + 广播到群**（派单/接单/拒单/重派），群 webhook 走 `.env`，不进仓库
 
 ### 🔌 接入与运维
 - **OpenAI 兼容层**：把 LangGraph 伪装成一个 LLM Provider，外部网关零改动接入
@@ -173,11 +175,58 @@ flowchart TD
 
 ---
 
+## 🔌 OpenClaw 接入
+
+项目采用 **「LangGraph 管内，OpenClaw 管外」** 的分工：**后端不自己接渠道**，而是把 LangGraph
+伪装成一个 **OpenAI 兼容的大模型**，由 OpenClaw 负责飞书/企微/钉钉的接入、会话隔离与工具白名单。
+
+```mermaid
+flowchart LR
+    U["用户<br/>飞书 / 企微 / 钉钉"] --> GW
+    GW["OpenClaw 网关<br/>渠道插件 + Custom Provider"] -->|OpenAI 兼容协议| V1
+    V1["后端 /v1/chat/completions"] --> WF["LangGraph 工作流"]
+    WF --> OUT["出站通知<br/>直连飞书 API"]
+    OUT -.->|主动发消息| U
+```
+
+**为什么这么设计**：后端因此**不需要**实现各渠道的事件回调、签名校验、消息去重与多租户会话，
+只要实现一个 OpenAI 协议端点即可。反过来，网关也不需要理解业务状态机。
+
+### 后端对网关暴露的接口
+
+| 方法 | 端点 | 用途 |
+|---|---|---|
+| GET | `/v1/models` | 暴露可用"模型"：`local-rag`、`local-rag-search` |
+| POST | `/v1/chat/completions` | **主入口**，支持 SSE 流式 |
+| POST | `/threads/{id}/runs/stream` | 工作流 SSE 事件流（5 种事件类型） |
+| POST | `/threads/{id}/runs/resume` | HITL 断点恢复 |
+| GET | `/admin/openclaw/status` | 网关探活（与 `/health` 同源） |
+| GET | `/admin/skills` | 导出 5 个 Skill 的 JSON Schema |
+
+后端还会从网关透传的元数据里提取**飞书身份**（`open_id` / `chat_id`），用于「我的工单」、
+飞书命令鉴权与待绑定登记；并剥掉网关注入的元数据外壳，只留用户原话。
+
+### 部署形态
+
+| 形态 | 网关 → 后端 | 说明 |
+|---|---|---|
+| **同机部署（推荐）** | `http://127.0.0.1:8000/v1` | 后端与网关同一台服务器，后端**无需暴露公网** |
+| 分离部署 | frp / 反向代理 + HTTPS | 后端在内网、网关在外部时使用 |
+
+> **⚠️ 最容易踩的坑**：飞书 `open_id` **按应用隔离**。用 A 应用拿到的 `open_id` 去 B 应用发消息，
+> 会直接报 `99992361 open_id cross app`。所以库里配的 `open_id` 必须是**后端发消息所用应用**签发的
+> （人员管理里提供「按手机号反查」来获取）。
+
+完整部署步骤、网关侧配置、身份透传细节与排错手册见
+**[docs/09-openclaw-deployment.md](docs/09-openclaw-deployment.md)**。
+
+---
+
 ## 🧰 技术栈
 
 | 层级 | 技术 | 在本项目中的职责 |
 |---|---|---|
-| **接入网关** | OpenClaw（外部网关） | 多渠道接入、会话控制、工具白名单；后端以 OpenAI 协议对接 |
+| **接入网关** | OpenClaw（多渠道网关） | 渠道接入、会话控制、工具白名单；后端以 OpenAI 协议对接，支持本地调试与服务器部署（见 [docs/09](docs/09-openclaw-deployment.md)） |
 | | frp | 内网穿透，供外部网关回调本地服务 |
 | | 自研 OpenAI 兼容层 | 协议适配、元数据剥离、飞书身份提取、快捷命令短路 |
 | **Agent 编排** | LangGraph 1.2 + `langgraph-checkpoint-sqlite` | 主状态机、条件路由、断点持久化与恢复 |
@@ -289,7 +338,10 @@ npm run dev
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` / `TOP_K_RETRIEVE` / `TOP_K_RERANK` | RAG 切片与召回参数 | `512` / `64` / `20` / `5` |
 | `MIN_RELEVANCE_SCORE` | 拒答阈值 | `0.55` |
 | `JWT_SECRET` / `JWT_EXPIRE_HOURS` | JWT 密钥与有效期 | **必须改** |
-| `OPENCLAW_ENABLED` / `OPENCLAW_GATEWAY_URL` | 外部网关开关与地址 | `false` |
+| `FEISHU_WEBHOOK_ENGINEER_GROUP` 等 | 飞书群机器人 webhook（事件广播用）。**敏感，只放 `.env`，不要写进 `feishu_routes.yaml`** | `https://open.feishu.cn/open-apis/bot/v2/hook/xxx` |
+| `OPENCLAW_ENABLED` | 是否启动时探活网关并在 `/health` 上报（**不是集成总闸**，`/v1` 端点始终可用） | `true` / `false` |
+| `OPENCLAW_GATEWAY_URL` | 网关地址（本地 `127.0.0.1:18000`；生产填你的服务器地址，**勿提交真实地址**） | `http://<your-gateway>:18000` |
+| `OPENCLAW_API_KEY` | 与网关侧约定的调用密钥 | 强随机值 |
 
 > 💡 **免外部依赖的最小配置**：`DB_MODE=sqlite` + `CACHE_BACKEND=sqlite` + `CHROMA_MODE=embedded` + `LLM_PROVIDER=ollama_native`，即可完全离线运行。
 
@@ -353,6 +405,8 @@ npm run dev
 | **认证** | POST | `/auth/login` · `/auth/change-password` | 登录 / 改密 |
 | **SLA** | GET | `/sla/summary` · `/sla/rules` · `/sla/tickets` | 汇总 / 规则 / 倒计时 |
 | **运维** | GET | `/logs/audit` · `/logs/notifications` | 审计与通知 |
+| | GET | `/admin/skills` | 导出 OpenClaw Skill 的 JSON Schema |
+| | GET | `/admin/openclaw/status` | OpenClaw 网关探活 |
 | | GET / POST | `/admin/config` · `/admin/reload` · `/admin/dashboard/stats` | 配置热重载 / 看板 |
 
 完整契约见 `/docs`（Swagger UI）与 [`docs/05-api-spec.md`](docs/05-api-spec.md)。
@@ -380,17 +434,30 @@ python scripts/run_ragas.py
 
 ---
 
-## 🧪 测试
+## 🧪 测试与排障
 
 ```bash
+# 单元测试
 python -m pytest -q
+
+# 飞书链路一键诊断（凭据 / 私聊 / 群 / open_id 反查 / 网关探活）
+python scripts/feishu_doctor.py
+python scripts/feishu_doctor.py --send --open-id ou_xxx          # 真发一条
+python scripts/feishu_doctor.py --mobile 13800138000             # 反查本应用 open_id
+python scripts/feishu_doctor.py --chat-members oc_xxx            # 列群成员的 open_id
 ```
 
 覆盖范围：意图识别与槽位提取、规则引擎与操作符、文档切片、缓存服务、认证与权限、工单与 SLA 接口。
 
+> **飞书通知排障要点**：`open_id` 按**应用**隔离（跨应用报 `99992361`），
+> 群通知要求**机器人已在群里**（否则报 `230002`）。详见
+> [docs/09-openclaw-deployment.md](docs/09-openclaw-deployment.md) 的排错表。
+
 ---
 
 ## 🐳 Docker 部署
+
+### 本机全栈（含 MySQL / Redis / Chroma）
 
 ```bash
 docker compose build app
@@ -405,7 +472,20 @@ docker compose ps
 | `redis` | `6379:6379` |
 | `chroma` | `8001:8000` |
 
-> 容器内应将 `MYSQL_HOST` 设为 `mysql`、`CHROMA_MODE` 设为 `http`，参见 `.env.production`。
+> 容器内应将 `MYSQL_HOST` 设为 `mysql`、`CHROMA_MODE` 设为 `http`，参见 `.env.production.example`。
+
+### 小内存服务器（推荐：2GB 也能跑）
+
+如果服务器只有 1~2GB 内存、或要与**其他项目共存**，请用精简版：**去掉 MySQL / Redis / Chroma 三个容器**，
+改用 SQLite + 内嵌 Chroma（本项目原生支持），单实例内存可压到 **400MB 以内**。
+
+```bash
+cp .env.production.example .env.production   # 按需修改
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+多项目共存的完整方案（一个 Caddy 边缘代理按子域名分流、内存预算、swap、排错）见
+**[docs/10-deploy-2g.md](docs/10-deploy-2g.md)**，边缘代理配置在 [`deploy/`](deploy)。
 
 ---
 

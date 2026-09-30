@@ -1,32 +1,50 @@
 FROM python:3.12-slim
 
-WORKDIR /app
+# ---------- 基础环境 ----------
+# TZ                  : 容器默认 UTC，会让日志与 SLA 计算偏移 8 小时
+# PYTHONUNBUFFERED    : 日志实时输出（docker logs 才能看到）
+# PYTHONDONTWRITEBYTECODE : 不写 .pyc，减少小磁盘压力
+# MALLOC_ARENA_MAX    : 限制 glibc 内存竞技场，显著降低小内存机器 RSS
+ENV TZ=Asia/Shanghai \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    MALLOC_ARENA_MAX=2
 
 # 换 Debian 源为阿里云（避免国内访问 deb.debian.org 超时）
 RUN sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || \
     sed -i 's|deb.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
 
-# 系统依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
+        curl \
+        tzdata \
+    && ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
-# 先装依赖（利用 Docker 缓存）
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/
+WORKDIR /app
 
-# 拷贝代码
+# ---------- 依赖（单独一层，利用构建缓存）----------
+COPY requirements-prod.txt .
+RUN pip install -r requirements-prod.txt -i https://mirrors.aliyun.com/pypi/simple/
+
+# ---------- 代码 ----------
 COPY app/ ./app/
 COPY scripts/ ./scripts/
 COPY pyproject.toml .
-COPY .env.example .
 
-# 创建数据目录
-RUN mkdir -p /app/data /app/logs
+# ---------- 数据目录 + 非 root 用户 ----------
+# 注意：宿主机挂载的 ./data 与 ./logs 需要 chown 到 10001，否则容器内无权写入
+RUN mkdir -p /app/data /app/logs \
+    && useradd -m -u 10001 appuser \
+    && chown -R appuser:appuser /app
+USER appuser
 
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD curl -fsS http://127.0.0.1:8000/health || exit 1
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 单 worker：2GB 机器上每多一个 worker 就多一份完整进程内存
+# --no-access-log：小服务器上省 IO 与日志体积（业务日志仍在）
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", \
+     "--workers", "1", "--no-access-log", "--proxy-headers", "--forwarded-allow-ips", "*"]

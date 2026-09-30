@@ -302,24 +302,19 @@ async def dashboard_stats():
 
 @router.get("/openclaw/status")
 async def openclaw_status():
-    """探测 OpenClaw 网关是否可达。"""
+    """探测 OpenClaw 网关是否可达（复用统一探活，结果与 /health 一致）。"""
     from app.config.settings import get_settings
-    s = get_settings()
-    result = {
-        "enabled": s.openclaw_enabled,
-        "gateway_url": s.openclaw_gateway_url,
-        "feishu_app_id": s.openclaw_feishu_app_id or "(未配置)",
-    }
-    if not s.openclaw_enabled:
-        result["reachable"] = False
-        result["message"] = "OpenClaw 已禁用"
-        return result
-    try:
-        import httpx
-        r = httpx.get(s.openclaw_gateway_url + "/v1/models", timeout=5, trust_env=False)
-        result["reachable"] = r.status_code == 200
-        result["message"] = f"HTTP {r.status_code}"
-    except Exception as e:
-        result["reachable"] = False
-        result["message"] = str(e)[:100]
+    from app.gateway.health import probe
+
+    result = probe()
+    result["feishu_app_id"] = get_settings().openclaw_feishu_app_id or "(未配置)"
     return result
+
+
+@router.get("/skills")
+async def list_skills():
+    """列出 OpenClaw Skill 的 JSON Schema（供网关侧注册/发现工具）。"""
+    from app.gateway.skills import list_skill_schemas
+
+    items = list_skill_schemas()
+    return {"total": len(items), "skills": items}

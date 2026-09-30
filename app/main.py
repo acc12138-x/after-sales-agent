@@ -86,6 +86,17 @@ async def _warmup_rag():
     await _aio.get_running_loop().run_in_executor(None, _sync_warmup)
 
 
+async def _probe_openclaw():
+    """启动时探活 OpenClaw 网关（放到线程池，不阻塞启动）。"""
+    from app.gateway.health import probe
+
+    st = await asyncio.get_running_loop().run_in_executor(None, probe)
+    if st.get("reachable") is True:
+        print(f"[OpenClaw] 网关可达：{st.get('gateway_url')}（{st.get('message')}）")
+    else:
+        print(f"[OpenClaw] ⚠️ 网关不可达：{st.get('gateway_url')}（{st.get('message')}）")
+
+
 @asynccontextmanager
 async def lifespan(app):
     """启动时挂后台任务。"""
@@ -94,6 +105,12 @@ async def lifespan(app):
     # 后台预热（不阻塞 FastAPI 启动）
     asyncio.create_task(_warmup_rag())
     print("[启动] RAG 预热任务已挂载")
+    # OpenClaw 网关探活（仅当 OPENCLAW_ENABLED=true）
+    if getattr(settings, "openclaw_enabled", False):
+        asyncio.create_task(_probe_openclaw())
+        print("[启动] OpenClaw 网关探活任务已挂载")
+    else:
+        print("[启动] OpenClaw 未启用（OPENCLAW_ENABLED=false），跳过探活")
     yield
     task.cancel()
     print("[关闭] SLA 定时扫描已停止")
@@ -151,7 +168,8 @@ async def cache_cleanup():
 
 @app.get("/health", response_model=HealthResponse)
 async def health():
-    return HealthResponse(status="ok")
+    from app.gateway.health import get_state
+    return HealthResponse(status="ok", openclaw=get_state())
 
 
 @app.get("/")

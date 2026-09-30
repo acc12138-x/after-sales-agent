@@ -1,0 +1,63 @@
+# ============================================================
+# 生产精简版 compose —— 只跑应用本体
+#
+# 适用：2GB 内存、且要与「另一个项目 + 简历机器人」共存的服务器
+#
+# 做了什么取舍：
+#   - 不启 MySQL / Redis / Chroma 容器（改用 SQLite + 内嵌 Chroma）
+#     省下约 500MB 常驻内存，也让启动更快
+#   - 前端不进这个镜像，由共享边缘代理（deploy/）直接托管静态文件
+#   - 限制容器内存，避免单个项目把整机吃光触发 OOM Killer
+#   - 日志轮转，避免日志把磁盘写满
+#
+# 前置：
+#   docker network create edge            # 共享网络，所有项目 + 边缘代理都接它
+#   cp .env.production.example .env.production   # 填好真实值
+#   chown -R 10001:10001 data logs        # 容器内以非 root 运行，需要宿主机目录可写
+#
+# 启动：
+#   docker compose -f docker-compose.prod.yml up -d --build
+# ============================================================
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: easkb-app:prod
+    container_name: easkb-app
+    restart: unless-stopped
+
+    env_file:
+      - .env.production
+
+    volumes:
+      # SQLite 业务库 / 缓存 / Chroma / LangGraph checkpoint 全在 ./data 下
+      - ./data:/app/data
+      - ./logs:/app/logs
+
+    # 只绑回环，方便在服务器上直接 curl 调试，不对外暴露
+    ports:
+      - "127.0.0.1:18001:8000"
+
+    # 内存上限：单实例约 350~450MB，留 700MB 头部空间防突发
+    mem_limit: 700m
+    memswap_limit: 900m
+
+    networks:
+      - edge
+
+    # 若 OpenClaw 跑在宿主机（非容器），用 host.docker.internal 访问
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  edge:
+    external: true
+    name: edge

@@ -1,37 +1,30 @@
 <template>
   <el-container style="height: 100vh;">
-    <el-aside width="220px" class="sidebar">
+    <el-aside width="224px" class="sidebar">
       <div class="logo">
-        <el-icon :size="28"><Tools /></el-icon>
+        <el-icon :size="26"><Tools /></el-icon>
         <div>
           <div class="logo-title">业务助手</div>
           <div class="logo-sub">Business Agent</div>
         </div>
       </div>
 
-      <el-menu
-        :default-active="$route.path"
-        :default-openeds="openGroups"
-        router
-        class="menu"
-        unique-opened
-      >
-        <el-sub-menu v-for="group in MENU_GROUPS" :key="group.key" :index="group.key">
-          <template #title>
-            <el-icon><component :is="group.icon" /></el-icon>
-            <span>{{ group.label }}</span>
-          </template>
-          <el-menu-item
-            v-for="item in group.items"
-            :key="item.path"
-            :index="item.path"
-            v-show="hasPerm(item.perm)"
-          >
-            <el-icon><component :is="item.icon" /></el-icon>
-            {{ item.label }}
-          </el-menu-item>
-        </el-sub-menu>
-      </el-menu>
+      <div class="menu-wrap">
+        <el-menu :default-active="$route.path" router class="menu">
+          <el-menu-item-group v-for="group in visibleGroups" :key="group.key">
+            <template #title>
+              <span class="group-title">
+                <el-icon :size="12"><component :is="group.icon" /></el-icon>
+                <span>{{ group.label }}</span>
+              </span>
+            </template>
+            <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path">
+              <el-icon><component :is="item.icon" /></el-icon>
+              <span>{{ item.label }}</span>
+            </el-menu-item>
+          </el-menu-item-group>
+        </el-menu>
+      </div>
 
       <div class="footer">
         <div v-if="user" class="user-info">
@@ -52,6 +45,7 @@
     <el-container>
       <el-header class="topbar">
         <span class="route-title">{{ $route.name }}</span>
+        <span class="route-group" v-if="currentGroup">· {{ currentGroup.label }}</span>
       </el-header>
       <el-main class="main-content">
         <router-view />
@@ -62,7 +56,7 @@
 
 <script setup>
 import { ref, computed, onMounted } from "vue";
-import { useRouter } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 import { ElMessageBox, ElMessage } from "element-plus";
 import {
   Tools, ChatDotRound, Collection, Tickets, UserFilled, Money, CircleCheck,
@@ -71,36 +65,60 @@ import {
 import api from "../api";
 
 const router = useRouter();
+const route = useRoute();
 const user = ref(null);
 
+/**
+ * 左侧导航分组：按「业务域」归类，一组只放同类功能。
+ *
+ * 1. 工作台      —— 概览与自测
+ * 2. 售后业务    —— 工单 / 客户 / 退款 / 时效 / 审批，都是日常售后处理
+ * 3. 知识库      —— 知识资产的维护
+ * 4. 组织与人员  —— 人、角色、权限
+ * 5. 系统管理    —— 集成配置、日志、通知、全局设置
+ */
 const MENU_GROUPS = [
-  { key: "daily", label: "日常工作", icon: "ChatDotRound", items: [
-    { path: "/chat",    label: "对话测试", icon: "ChatDotRound" },
-    { path: "/tickets", label: "工单",     icon: "Tickets" },
-    { path: "/sla",     label: "SLA时效",  icon: "AlarmClock" },
-  ]},
-  { key: "customer", label: "客户与服务", icon: "UserFilled", items: [
-    { path: "/customers", label: "客户资产", icon: "UserFilled" },
-    { path: "/refunds",   label: "退款管理", icon: "Money",       perm: "refund.view" },
-    { path: "/approvals", label: "审批台",   icon: "CircleCheck", perm: "refund.approve" },
-  ]},
-  { key: "knowledge", label: "知识运营", icon: "Collection", items: [
-    { path: "/knowledge", label: "知识库",   icon: "Collection" },
-    { path: "/feishu",    label: "飞书配置", icon: "ChatDotRound", perm: "sla.edit" },
-  ]},
-  { key: "team", label: "团队与权限", icon: "User", items: [
-    { path: "/people",    label: "人员管理", icon: "UserFilled", perm: "user.view" },
-    { path: "/engineers", label: "工程师",   icon: "User",       perm: "user.view" },
-  ]},
-  { key: "system", label: "系统", icon: "Setting", items: [
-    { path: "/audit",         label: "审计日志", icon: "Document", perm: "audit.view" },
-    { path: "/notifications", label: "通知记录", icon: "Bell" },
-    { path: "/config",        label: "系统配置", icon: "Setting",  perm: "sla.edit" },
-    { path: "/monitor",       label: "监控看板", icon: "DataLine" },
-  ]},
+  {
+    key: "workbench", label: "工作台", icon: "DataLine",
+    items: [
+      { path: "/monitor", label: "监控看板", icon: "DataLine" },
+      { path: "/chat",    label: "对话测试", icon: "ChatDotRound" },
+    ],
+  },
+  {
+    key: "business", label: "售后业务", icon: "Tickets",
+    items: [
+      { path: "/tickets",   label: "工单",     icon: "Tickets" },
+      { path: "/customers", label: "客户资产", icon: "UserFilled" },
+      { path: "/refunds",   label: "退款管理", icon: "Money",       perm: "refund.view" },
+      { path: "/sla",       label: "SLA 时效", icon: "AlarmClock" },
+      { path: "/approvals", label: "审批台",   icon: "CircleCheck", perm: "refund.approve" },
+    ],
+  },
+  {
+    key: "knowledge", label: "知识库", icon: "Collection",
+    items: [
+      { path: "/knowledge", label: "知识库", icon: "Collection" },
+    ],
+  },
+  {
+    key: "team", label: "组织与人员", icon: "User",
+    items: [
+      { path: "/people",    label: "人员管理", icon: "UserFilled", perm: "user.view" },
+      { path: "/engineers", label: "工程师",   icon: "User",       perm: "user.view" },
+    ],
+  },
+  {
+    key: "system", label: "系统管理", icon: "Setting",
+    items: [
+      { path: "/feishu",        label: "飞书配置", icon: "ChatDotRound", perm: "sla.edit" },
+      { path: "/audit",         label: "审计日志", icon: "Document",      perm: "audit.view" },
+      { path: "/notifications", label: "通知记录", icon: "Bell" },
+      { path: "/config",        label: "系统配置", icon: "Setting",       perm: "sla.edit" },
+    ],
+  },
 ];
-const openGroups = ref(["daily", "customer"]);
-const menus = MENU_GROUPS.flatMap(function(g) { return g.items; });
+
 const perms = computed(() => (user.value && user.value.effective_permissions) || []);
 const isAdmin = computed(() => perms.value.includes("*"));
 
@@ -110,6 +128,18 @@ function hasPerm(p) {
   return perms.value.includes(p);
 }
 
+/** 过滤掉无权限的项；整组都空了就连组标题一起隐藏 */
+const visibleGroups = computed(() =>
+  MENU_GROUPS
+    .map((g) => ({ ...g, items: g.items.filter((it) => hasPerm(it.perm)) }))
+    .filter((g) => g.items.length > 0)
+);
+
+/** 当前页面所属分组，用于顶栏面包屑 */
+const currentGroup = computed(() =>
+  MENU_GROUPS.find((g) => g.items.some((it) => it.path === route.path)) || null
+);
+
 function roleColor(r) {
   return { admin: "#ef4444", supervisor: "#f59e0b", engineer: "#4f46e5", agent: "#22c55e" }[r] || "#9ca3af";
 }
@@ -118,7 +148,7 @@ async function doLogout() {
   try {
     await ElMessageBox.confirm("确定退出登录？", "提示", { type: "warning" });
   } catch { return; }
-  try { await api.logout(); } catch (e) {}
+  try { await api.logout(); } catch (e) { /* 忽略 */ }
   localStorage.removeItem("auth_token");
   localStorage.removeItem("auth_user");
   ElMessage.success("已退出");
@@ -128,7 +158,7 @@ async function doLogout() {
 onMounted(async () => {
   const cached = localStorage.getItem("auth_user");
   if (cached) {
-    try { user.value = JSON.parse(cached); } catch (e) {}
+    try { user.value = JSON.parse(cached); } catch (e) { /* 忽略 */ }
   }
   try {
     const me = await api.me();
@@ -147,19 +177,44 @@ onMounted(async () => {
   display: flex; flex-direction: column;
 }
 .logo {
-  display: flex; align-items: center; gap: 12px;
-  padding: 20px; border-bottom: 1px solid #e5e7eb;
-  color: #4f46e5;
+  display: flex; align-items: center; gap: 10px;
+  padding: 16px 18px; border-bottom: 1px solid #e5e7eb;
+  color: #4f46e5; flex-shrink: 0;
 }
-.logo-title { font-weight: 700; font-size: 16px; }
+.logo-title { font-weight: 700; font-size: 15px; }
 .logo-sub { font-size: 11px; color: #6b7280; }
-.menu { border: none; background: transparent; flex: 1; overflow-y: auto; }
-.menu .el-menu-item { margin: 4px 10px; border-radius: 8px; }
-.menu .el-menu-item.is-active {
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-  color: white;
+
+/* 菜单区可滚动；min-height:0 让 flex 子项能正常收缩 */
+.menu-wrap { flex: 1; min-height: 0; overflow-y: auto; }
+.menu { border: none; background: transparent; padding-bottom: 8px; }
+
+/* 分组标题：小而灰，起"分隔章节"的作用 */
+.menu :deep(.el-menu-item-group__title) {
+  padding: 14px 18px 6px;
+  line-height: 1.2;
 }
-.footer { padding: 12px 16px; border-top: 1px solid #e5e7eb; }
+.menu :deep(.el-menu-item-group:first-child .el-menu-item-group__title) {
+  padding-top: 8px;
+}
+.group-title {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+  color: #9ca3af; text-transform: uppercase;
+}
+
+/* 菜单项：圆角、紧凑 */
+.menu :deep(.el-menu-item) {
+  height: 38px; line-height: 38px;
+  margin: 2px 10px; border-radius: 8px;
+  font-size: 13px; color: #374151;
+}
+.menu :deep(.el-menu-item:hover) { background: #eef2ff; color: #4f46e5; }
+.menu :deep(.el-menu-item.is-active) {
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff; font-weight: 600;
+}
+
+.footer { padding: 12px 16px; border-top: 1px solid #e5e7eb; flex-shrink: 0; }
 .user-info { display: flex; align-items: center; gap: 10px; }
 .user-detail { flex: 1; min-width: 0; }
 .user-name {
@@ -167,11 +222,14 @@ onMounted(async () => {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .user-role { font-size: 11px; color: #6b7280; }
+
 .topbar {
   background: white; border-bottom: 1px solid #e5e7eb;
-  display: flex; align-items: center; padding: 0 24px;
+  display: flex; align-items: center; gap: 8px; padding: 0 24px;
   height: 56px;
 }
 .route-title { font-size: 16px; font-weight: 600; color: #374151; }
+.route-group { font-size: 12px; color: #9ca3af; }
+
 .main-content { background: #f8fafc; padding: 24px; overflow-y: auto; }
 </style>

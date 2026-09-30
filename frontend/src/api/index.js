@@ -91,6 +91,7 @@ export default {
   toggleUserStatus: (id) => http.post("/users/" + id + "/toggle-status"),
   getUserPermissions: (id) => http.get("/users/" + id + "/permissions"),
   checkUserPermission: (id, perm) => http.post("/users/" + id + "/check", { perm }),
+  resolveUserOpenId: (id, data) => http.post("/users/" + id + "/resolve-open-id", data),
 
   // ---------- 待绑定飞书账号 ----------
   getPendingBindings: () => http.get("/users/pending-bindings"),

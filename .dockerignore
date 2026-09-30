@@ -1,0 +1,49 @@
+# ===== 版本控制 / IDE =====
+.git
+.gitignore
+.gitattributes
+.idea
+.vscode
+.claude
+
+# ===== Python 缓存与虚拟环境 =====
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+
+# ===== 前端依赖与产物（前端单独构建，不进后端镜像）=====
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# ===== 运行时数据与日志（务必排除，否则会把本机数据带进镜像）=====
+data/
+logs/
+*.db
+*.db-shm
+*.db-wal
+*.log
+
+# ===== 环境变量与密钥 =====
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# ===== 备份 / 归档 / 临时 =====
+_archive/
+*.bak*
+_*.py
+_*.txt
+*.tmp
+
+# ===== 运行时不需要的目录 =====
+docs/
+tests/
+deploy/
+tools/

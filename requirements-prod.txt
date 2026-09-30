@@ -1,0 +1,64 @@
+# ============================================================
+# 生产运行依赖（精简版，版本已按本机 venv 实装版本锁定）
+#
+# 只保留「应用启动与运行真正需要」的包，用于构建小而快的镜像。
+#
+# 与 requirements.txt 的区别：
+#   - 去掉开发/测试工具：pytest / black / ruff / mypy / pre-commit
+#   - 去掉未使用的包：celery / prometheus_client / langsmith / alembic /
+#     loguru / tenacity / Markdown / pdfplumber / langchain(meta) /
+#     langchain-community / langchain-text-splitters
+#   - 去掉评估专用大包：ragas / datasets（拖入 pyarrow，体积大且极大拖慢构建）
+#     → 需要跑 scripts/run_ragas.py 时请改用完整 requirements.txt
+#
+# 环境：Linux + Python 3.12
+# 校验方式：与开发 venv 的 pip list 逐项对齐
+# ============================================================
+
+# ---------- Web 框架 ----------
+fastapi==0.141.1
+uvicorn==0.53.0
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-multipart==0.0.32
+
+# ---------- 配置与 HTTP ----------
+python-dotenv==1.2.3
+PyYAML==6.0.3
+httpx==0.28.1
+
+# ---------- LangGraph 编排 ----------
+langgraph==1.2.11
+langgraph-checkpoint==4.2.0
+langgraph-checkpoint-sqlite==3.1.1
+langgraph-prebuilt==1.1.0
+
+# ---------- LLM 客户端（按 base_url 自动切换本地/云端）----------
+langchain-core==1.6.3
+langchain-ollama==1.1.0
+langchain-openai==1.1.9
+openai==1.109.1
+ollama==0.6.2
+
+# ---------- RAG ----------
+chromadb==1.5.9
+rank-bm25==0.2.2
+jieba==0.42.1
+numpy==2.5.3
+
+# ---------- 文档解析（知识库上传）----------
+pypdf==6.19.0
+python-docx==1.2.0
+openpyxl==3.1.5
+
+# ---------- 数据库 ----------
+SQLAlchemy==2.0.54
+greenlet==3.5.6
+PyMySQL==1.2.3
+redis==8.1.0
+
+# ---------- 认证 ----------
+PyJWT==2.15.0
+
+# ---------- 类型（app/workflows/state.py 直接 import）----------
+typing_extensions==4.16.0

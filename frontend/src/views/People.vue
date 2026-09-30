@@ -142,7 +142,16 @@
               <el-input v-model="form.email" />
             </el-form-item>
             <el-form-item label="飞书 Open ID">
-              <el-input v-model="form.feishu_open_id" placeholder="ou_xxxxx，用于飞书私聊通知" />
+              <el-input v-model="form.feishu_open_id" placeholder="ou_xxxxx，用于飞书私聊通知">
+                <template #append>
+                  <el-button :loading="resolving" :disabled="!isEdit" @click="resolveOpenId">
+                    按手机号反查
+                  </el-button>
+                </template>
+              </el-input>
+              <div style="font-size:12px; color:#9ca3af; margin-top:4px;">
+                open_id 按飞书应用隔离，必须是「发消息那个应用」查出来的才有效（否则报 cross app）。
+              </div>
             </el-form-item>
             <el-form-item label="飞书 Chat ID">
               <el-input v-model="form.feishu_chat_id" placeholder="oc_xxxxx / chat:xxx，用于群通知与群会话" />
@@ -454,6 +463,27 @@ async function toggleStatus(row) {
   const r = await api.toggleUserStatus(row.id);
   ElMessage.success(`${row.name} 已切换为 ${r.status}`);
   await load();
+}
+
+// ============ 飞书 open_id 反查 ============
+const resolving = ref(false);
+
+async function resolveOpenId() {
+  if (!form.value.id) return ElMessage.warning("请先保存人员，再反查 open_id");
+  if (!form.value.phone.trim() && !form.value.email.trim()) {
+    return ElMessage.warning("请先填写手机号或邮箱");
+  }
+  resolving.value = true;
+  try {
+    const r = await api.resolveUserOpenId(form.value.id, {
+      mobile: form.value.phone.trim(),
+      email: form.value.email.trim(),
+    });
+    form.value.feishu_open_id = r.feishu_open_id;
+    ElMessage.success("✅ 已获取本应用的 open_id");
+  } catch (e) { /* 拦截器已提示 */ } finally {
+    resolving.value = false;
+  }
 }
 
 // ============ 待绑定飞书账号 ============

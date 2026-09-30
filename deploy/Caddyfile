@@ -1,0 +1,60 @@
+# ============================================================
+# 共享边缘反向代理（Caddy 2）
+#
+# 一个 Caddy 容器按【子域名】把请求分流到各个项目 —— 这是多项目共存的关键：
+# 每个项目只注册自己的子域名，互不干扰，也不需要各自暴露端口。
+#
+# Caddy 会自动申请并续期 Let's Encrypt 证书，无需 certbot。
+#
+# 前置：
+#   1) 域名解析：把每个子域名的 A 记录指向服务器公网 IP
+#   2) 创建共享网络：docker network create edge
+#   3) 开放防火墙 80 / 443
+#
+# 用法：docker compose -f deploy/docker-compose.edge.yml up -d
+#
+# ⚠️ 把 example.com 全部换成你自己的域名
+# ============================================================
+
+# ------------------------------------------------------------
+# 本项目：售后知识库 Agent
+#   /api/*  → 剥掉前缀转给后端容器（前端 axios 的 baseURL 就是 /api）
+#   其余     → 由 Caddy 直接托管前端静态文件（frontend/dist）
+# ------------------------------------------------------------
+agent.example.com {
+	encode zstd gzip
+
+	handle /api/* {
+		uri strip_prefix /api
+		reverse_proxy easkb-app:8000
+	}
+
+	handle {
+		root * /srv/agent
+		try_files {path} /index.html
+		file_server
+	}
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options SAMEORIGIN
+		Referrer-Policy strict-origin-when-cross-origin
+		-Server
+	}
+}
+
+# ------------------------------------------------------------
+# 简历机器人（占位示例：按实际容器名与端口改）
+# ------------------------------------------------------------
+resume.example.com {
+	encode zstd gzip
+	reverse_proxy resume-bot:8000
+}
+
+# ------------------------------------------------------------
+# 你的另一个项目（占位示例：按实际容器名与端口改）
+# ------------------------------------------------------------
+other.example.com {
+	encode zstd gzip
+	reverse_proxy other-app:8000
+}

@@ -1,0 +1,60 @@
+# ============================================================
+# 共享边缘代理：Caddy（自动 HTTPS + 按域名分流）
+#
+# 这是整台服务器上【唯一】对公网开放 80/443 的容器。
+# 其余项目都只接 edge 网络，不映射端口。
+#
+# 前置：
+#   docker network create edge
+#   域名 A 记录已指向服务器公网 IP
+#   防火墙放行 80 / 443
+#
+# 启动：
+#   docker compose -f deploy/docker-compose.edge.yml up -d
+#
+# 注意 caddy_data 卷：里面是 HTTPS 证书，删掉会触发重新签发，
+# Let's Encrypt 有频率限制，不要随意 down -v。
+# ============================================================
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    container_name: edge-caddy
+    restart: unless-stopped
+
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"      # HTTP/3
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+      # ---- 各项目的前端静态文件（按需增删）----
+      # 路径相对于本文件所在目录（deploy/）
+      - ../frontend/dist:/srv/agent:ro
+      # - /opt/apps/resume-bot/dist:/srv/resume:ro
+      # - /opt/apps/other-project/dist:/srv/other:ro
+
+    mem_limit: 96m
+    memswap_limit: 160m
+
+    networks:
+      - edge
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  edge:
+    external: true
+    name: edge
