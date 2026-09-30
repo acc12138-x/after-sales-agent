@@ -1,7 +1,6 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import json
-import time
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator
 
@@ -119,7 +118,6 @@ async def stream_run(thread_id: str, request: Request):
     init = {
         "thread_id": thread_id,
         "user_input": message,
-        "messages": messages,
         "slots": {},
     }
     config = {"configurable": {"thread_id": thread_id}}

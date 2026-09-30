@@ -27,7 +27,7 @@ def check_missing(intent: str, slots: Dict) -> List[str]:
             return ["order_id_or_phone"]
         return []
 
-    if intent in ("return", "exchange", "refund", "invoice"):
+    if intent in ("return", "exchange", "refund_apply", "compensation", "invoice"):
         if not _has("order_id") and not _has("phone"):
             return ["order_id_or_phone"]
         return []

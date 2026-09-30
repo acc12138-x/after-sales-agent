@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """迁移 engineers 表 -> users 表"""
-import os, sys, json
+import os, sys
 os.chdir(r"I:\XMWJ\PYxm\Enterprise After-Sales Knowledge Base Agent Platform")
 sys.path.insert(0, os.getcwd())
 sys.stdout.reconfigure(encoding="utf-8")
@@ -19,8 +19,9 @@ DEFAULT_ADMIN_PWD = "admin123"
 
 
 def _hash(pwd: str) -> str:
-    import hashlib
-    return hashlib.sha256(pwd.encode("utf-8")).hexdigest()
+    # 使用与 auth_service 一致的加盐哈希（否则 verify_password 无法校验）
+    from app.services.auth_service import hash_password
+    return hash_password(pwd)
 
 
 with session_scope() as s:

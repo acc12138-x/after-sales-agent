@@ -143,8 +143,9 @@ let trendChart, statusChart, engineerChart, slaChart, refundChart;
 
 // ============ 计算属性 ============
 const todayCount = computed(() => {
-  const today = new Date().toISOString().slice(5, 10); // MM-DD
-  const item = (stats.value.recent_7days || []).find((d) => d.date === today);
+  const d = new Date();
+  const today = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; // 本地日期 MM-DD
+  const item = (stats.value.recent_7days || []).find((x) => x.date === today);
   return item ? item.count : 0;
 });
 

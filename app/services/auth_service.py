@@ -77,13 +77,3 @@ def get_user_by_id(user_id: int) -> Optional[dict]:
         d = u.to_dict()
         d["effective_permissions"] = sorted(u.effective_permissions())
         return d
-
-
-def ensure_admin_password() -> None:
-    """如果管理员还没密码，设默认密码 admin123。"""
-    from sqlalchemy import select
-    with session_scope() as s:
-        u = s.execute(select(User).where(User.role == "admin")).scalar_one_or_none()
-        if u and not u.password_hash:
-            u.password_hash = hash_password("admin123")
-            print("[AUTH] 管理员默认密码已设置: admin123")

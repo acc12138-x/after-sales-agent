@@ -1,7 +1,7 @@
 """审计日志工具（写 MySQL）。"""
 from __future__ import annotations
 import json
-from typing import Any, Optional
+from typing import Optional
 
 from app.db.models.audit_log import AuditLog
 from app.db.session import session_scope

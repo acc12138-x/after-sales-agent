@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from app.rules.core.engine import RuleEngine
 from app.rules.loaders.yaml_loader import YamlLoader

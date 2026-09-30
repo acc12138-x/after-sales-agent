@@ -253,6 +253,7 @@ def chunk_document(
                     "section_index": idx,
                     "sub_index": sub_idx,
                     "type": "child",
+                    "parent_id": parent_id,
                     **extra_metadata,
                 },
             ))

@@ -1,15 +1,30 @@
 from __future__ import annotations
 from typing import Annotated, Any, Dict, List, Optional
 from typing_extensions import TypedDict
-import operator
+
+
+MAX_MESSAGES = 10   # 只保留最近 10 条（5 轮对话）
+
+
+def _append_with_limit(old, new):
+    """messages 只保留最近 MAX_MESSAGES 条。
+
+    各节点返回的是完整 messages 列表（已包含历史），LangGraph 会把它作为
+    new 传入 reducer；若再叠加 old 会导致同一条消息被重复写入。因此这里
+    只对 new 做截断，不再叠加 old。同时防止 checkpointer 累积 state.messages
+    导致 checkpoint blob 指数膨胀（曾到 7.88 GB）。
+    """
+    combined = list(new or [])
+    return combined[-MAX_MESSAGES:]
 
 
 class AgentState(TypedDict, total=False):
     # 会话
     thread_id: str
     trace_id: str
+    sender_open_id: str
     user_input: str
-    messages: Annotated[List[Dict], operator.add]
+    messages: Annotated[List[Dict], _append_with_limit]
 
     # 意图与槽位
     intent: str
@@ -33,7 +48,6 @@ class AgentState(TypedDict, total=False):
     confidence: float
 
     # 工具调用
-    tool_name: Optional[str]
     tool_result: Optional[Dict]
 
     # 【Day 3 新增】动作执行

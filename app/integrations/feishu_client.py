@@ -24,8 +24,17 @@ def _get_tenant_token() -> Optional[str]:
         return _TOKEN_CACHE["token"]
 
     s = get_settings()
-    app_id = getattr(s, "feishu_app_id", "") or ""
-    app_secret = getattr(s, "feishu_app_secret", "") or ""
+    # 优先 FEISHU_APP_ID，回退到 OPENCLAW_FEISHU_APP_ID（兼容旧配置）
+    app_id = (
+        getattr(s, "feishu_app_id", "")
+        or getattr(s, "openclaw_feishu_app_id", "")
+        or ""
+    )
+    app_secret = (
+        getattr(s, "feishu_app_secret", "")
+        or getattr(s, "openclaw_feishu_app_secret", "")
+        or ""
+    )
     if not app_id or not app_secret:
         return None
 
@@ -108,8 +117,78 @@ def send_webhook(webhook: str, text: str, at_all: bool = False) -> tuple[bool, s
 def test_connection() -> dict:
     """测试 App ID/Secret 是否有效。"""
     s = get_settings()
+    # 兼容两种字段名：feishu_app_id / openclaw_feishu_app_id
+    app_id = (
+        getattr(s, "feishu_app_id", "")
+        or getattr(s, "openclaw_feishu_app_id", "")
+        or ""
+    )
+    app_secret = (
+        getattr(s, "feishu_app_secret", "")
+        or getattr(s, "openclaw_feishu_app_secret", "")
+        or ""
+    )
+    if app_id:
+        masked = app_id if len(app_id) <= 12 else (app_id[:8] + "..." + app_id[-4:])
+    else:
+        masked = "(未配置)"
     return {
-        "app_id": (getattr(s, "feishu_app_id", "") or "")[:8] + "..." if getattr(s, "feishu_app_id", "") else "(未配置)",
-        "app_secret_set": bool(getattr(s, "feishu_app_secret", "")),
+        "app_id": masked,
+        "app_secret_set": bool(app_secret),
         "token_ok": _get_tenant_token() is not None,
     }
+
+# ============================================================
+# 智能发送：根据 ID 前缀自动选 open_id / chat_id
+# ============================================================
+def send_to_chat(chat_id: str, text: str) -> tuple[bool, str]:
+    """发消息到群（chat_id）。"""
+    if not chat_id or not chat_id.startswith("oc_"):
+        return False, f"invalid chat_id: {chat_id}"
+
+    token = _get_tenant_token()
+    if not token:
+        return False, "App ID/Secret 未配置或获取 token 失败"
+
+    try:
+        r = httpx.post(
+            "https://open.feishu.cn/open-apis/im/v1/messages?receive_id_type=chat_id",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "receive_id": chat_id,
+                "msg_type": "text",
+                "content": '{"text":"' + text.replace('"', '\\"').replace("\n", "\\n") + '"}',
+            },
+            timeout=15, trust_env=False,
+        )
+        d = r.json()
+        if d.get("code") == 0:
+            return True, ""
+        return False, f"code={d.get('code')} msg={d.get('msg', '')}"
+    except Exception as e:
+        return False, str(e)[:200]
+
+
+def send_smart(target: str, title: str, content: str, chat_id: str = "") -> tuple[bool, str]:
+    """智能发送：优先 chat_id（飞书限制 open_id 主动发单聊），其次 open_id。"""
+    text = f"【{title}】\n{content}"
+
+    # 1. 显式 chat_id 优先
+    if chat_id and chat_id.startswith("oc_"):
+        ok, err = send_to_chat(chat_id, text)
+        if ok:
+            return True, ""
+        print(f"[FEISHU] chat_id 发送失败({err})，回退 open_id")
+
+    # 2. target 本身是 chat_id
+    if target.startswith("oc_"):
+        return send_to_chat(target, text)
+
+    # 3. target 是 open_id
+    if target.startswith("ou_"):
+        return send_private(target, text)
+
+    return send_private(target, text)

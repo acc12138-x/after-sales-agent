@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 import uuid
 import traceback
 from datetime import datetime, timezone
@@ -75,14 +75,16 @@ async def chat(req: ChatRequest) -> ChatResponse:
         except Exception as e:
             print(f"[CACHE] exact lookup failed: {e}")
 
-        # 第二步：exact 未命中，算 embedding 做语义匹配
+        # 第二步：exact 未命中，算 embedding（semantic 默认关闭，避免误命中）
         if not cached:
             try:
                 from app.rag.embedding import embed_query
                 query_emb = embed_query(req.message)
-                cached = cache.get_semantic(query_emb)
-                if cached:
-                    cached["_cache_hit"] = "semantic"
+                import os as _os
+                if _os.environ.get("CACHE_SEMANTIC_ENABLED", "0") in ("1", "true", "yes"):
+                    cached = cache.get_semantic(query_emb)
+                    if cached:
+                        cached["_cache_hit"] = "semantic"
             except Exception as e:
                 print(f"[CACHE] semantic lookup failed: {e}")
 
@@ -144,7 +146,6 @@ async def chat(req: ChatRequest) -> ChatResponse:
                 "thread_id": req.thread_id,
                 "trace_id": trace_id,
                 "user_input": req.message,
-                "messages": [],
                 "slots": {},
             }
             final = graph.invoke(init, config=config)

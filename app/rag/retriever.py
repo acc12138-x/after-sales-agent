@@ -67,11 +67,11 @@ class HybridRetriever:
                 embeddings=embed_texts([c.text for c in children]),
             )
 
-            # BM25 索引只加子块（每次重建）
-            self.bm25_ids = [c.chunk_id for c in children]
-            self.bm25_texts = [c.text for c in children]
-            tokenized = [list(jieba.cut(t)) for t in self.bm25_texts]
-            self.bm25 = BM25Okapi(tokenized)
+            # BM25 索引从 Chroma 拉全部子块重建，避免只索引当前文档导致漏召回
+            self.bm25 = None
+            self.bm25_ids = []
+            self.bm25_texts = []
+            self._ensure_bm25()
 
     def _ensure_bm25(self) -> None:
         """BM25 索引为空时，从 Chroma 拉所有子块重建。"""
@@ -112,7 +112,8 @@ class HybridRetriever:
         )
         ids = res.get("ids", [[]])[0]
         distances = res.get("distances", [[]])[0]
-        return [(i, 1.0 / (1.0 + d)) for i, d in zip(ids, distances)]
+        # cosine 空间 distance = 1 - cos，故相似度 = 1 - d
+        return [(i, 1.0 - d) for i, d in zip(ids, distances)]
 
     def search_hybrid(
         self, query: str, k: int = 20, rrf_k: int | None = None,

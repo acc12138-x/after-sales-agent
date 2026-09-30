@@ -16,7 +16,7 @@ class Order(Base):
     quantity = Column(Integer, default=1)
     amount = Column(Numeric(10, 2), default=0)
     status = Column(String(32), default="paid")  # paid / shipped / delivered / refunded
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
     delivered_at = Column(DateTime, nullable=True)
     warranty_days = Column(Integer, default=365)
 
@@ -30,12 +30,12 @@ class Order(Base):
     def days_since_delivered(self):
         if not self.delivered_at:
             return None
-        return (datetime.utcnow() - self.delivered_at).days
+        return (datetime.now() - self.delivered_at).days
 
     @property
     def in_warranty(self):
         we = self.warranty_end
-        return bool(we and datetime.utcnow() <= we)
+        return bool(we and datetime.now() <= we)
 
     def to_dict(self):
         def _iso(dt): return dt.isoformat() if dt else None

@@ -4,21 +4,33 @@
       <div class="logo">
         <el-icon :size="28"><Tools /></el-icon>
         <div>
-          <div class="logo-title">售后助手</div>
-          <div class="logo-sub">Enterprise Agent</div>
+          <div class="logo-title">业务助手</div>
+          <div class="logo-sub">Business Agent</div>
         </div>
       </div>
 
-      <el-menu :default-active="$route.path" router class="menu">
-        <el-menu-item
-          v-for="item in menus"
-          :key="item.path"
-          :index="item.path"
-          v-show="hasPerm(item.perm)"
-        >
-          <el-icon><component :is="item.icon" /></el-icon>
-          {{ item.label }}
-        </el-menu-item>
+      <el-menu
+        :default-active="$route.path"
+        :default-openeds="openGroups"
+        router
+        class="menu"
+        unique-opened
+      >
+        <el-sub-menu v-for="group in MENU_GROUPS" :key="group.key" :index="group.key">
+          <template #title>
+            <el-icon><component :is="group.icon" /></el-icon>
+            <span>{{ group.label }}</span>
+          </template>
+          <el-menu-item
+            v-for="item in group.items"
+            :key="item.path"
+            :index="item.path"
+            v-show="hasPerm(item.perm)"
+          >
+            <el-icon><component :is="item.icon" /></el-icon>
+            {{ item.label }}
+          </el-menu-item>
+        </el-sub-menu>
       </el-menu>
 
       <div class="footer">
@@ -61,25 +73,34 @@ import api from "../api";
 const router = useRouter();
 const user = ref(null);
 
-const MENUS = [
-  { path: "/chat",          label: "对话测试",  icon: ChatDotRound },
-  { path: "/knowledge",     label: "知识库",    icon: Collection },
-  { path: "/tickets",       label: "工单",      icon: Tickets },
-  { path: "/customers",     label: "客户资产",  icon: UserFilled },
-  { path: "/refunds",       label: "退款管理",  icon: Money,       perm: "refund.view" },
-  { path: "/sla",           label: "SLA时效",   icon: AlarmClock },
-  { path: "/engineers",     label: "工程师",    icon: User,        perm: "user.view" },
-  { path: "/people",        label: "人员管理",  icon: UserFilled,  perm: "user.view" },
-  { path: "/approvals",     label: "审批台",    icon: CircleCheck, perm: "refund.approve" },
-  { path: "/feishu",        label: "飞书配置",  icon: ChatDotRound, perm: "sla.edit" },
-  { path: "/audit",         label: "审计日志",  icon: Document,    perm: "audit.view" },
-  { path: "/notifications", label: "通知记录",  icon: Bell },
-  { path: "/config",        label: "系统配置",  icon: Setting,     perm: "sla.edit" },
-  { path: "/monitor",       label: "监控看板",  icon: DataLine },
+const MENU_GROUPS = [
+  { key: "daily", label: "日常工作", icon: "ChatDotRound", items: [
+    { path: "/chat",    label: "对话测试", icon: "ChatDotRound" },
+    { path: "/tickets", label: "工单",     icon: "Tickets" },
+    { path: "/sla",     label: "SLA时效",  icon: "AlarmClock" },
+  ]},
+  { key: "customer", label: "客户与服务", icon: "UserFilled", items: [
+    { path: "/customers", label: "客户资产", icon: "UserFilled" },
+    { path: "/refunds",   label: "退款管理", icon: "Money",       perm: "refund.view" },
+    { path: "/approvals", label: "审批台",   icon: "CircleCheck", perm: "refund.approve" },
+  ]},
+  { key: "knowledge", label: "知识运营", icon: "Collection", items: [
+    { path: "/knowledge", label: "知识库",   icon: "Collection" },
+    { path: "/feishu",    label: "飞书配置", icon: "ChatDotRound", perm: "sla.edit" },
+  ]},
+  { key: "team", label: "团队与权限", icon: "User", items: [
+    { path: "/people",    label: "人员管理", icon: "UserFilled", perm: "user.view" },
+    { path: "/engineers", label: "工程师",   icon: "User",       perm: "user.view" },
+  ]},
+  { key: "system", label: "系统", icon: "Setting", items: [
+    { path: "/audit",         label: "审计日志", icon: "Document", perm: "audit.view" },
+    { path: "/notifications", label: "通知记录", icon: "Bell" },
+    { path: "/config",        label: "系统配置", icon: "Setting",  perm: "sla.edit" },
+    { path: "/monitor",       label: "监控看板", icon: "DataLine" },
+  ]},
 ];
-
-const menus = MENUS;
-
+const openGroups = ref(["daily", "customer"]);
+const menus = MENU_GROUPS.flatMap(function(g) { return g.items; });
 const perms = computed(() => (user.value && user.value.effective_permissions) || []);
 const isAdmin = computed(() => perms.value.includes("*"));
 

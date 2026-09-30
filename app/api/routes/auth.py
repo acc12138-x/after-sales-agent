@@ -70,7 +70,6 @@ async def logout(user: dict = Depends(get_current_user)):
 
 @router.post("/change-password")
 async def change_password(req: ChangePasswordRequest, user: dict = Depends(get_current_user)):
-    from sqlalchemy import select
     from app.db.models.user import User
     from app.db.session import session_scope
     from app.services.auth_service import verify_password

@@ -30,6 +30,13 @@
         <el-button type="primary" :icon="Search" @click="load">查询</el-button>
       </div>
       <div class="toolbar-right">
+        <el-button
+          :type="pendingList.length ? 'warning' : 'default'"
+          :icon="Link"
+          @click="openPending"
+        >
+          待绑定飞书账号{{ pendingList.length ? " (" + pendingList.length + ")" : "" }}
+        </el-button>
         <el-button type="primary" :icon="Plus" @click="openAdd">新增人员</el-button>
       </div>
     </div>
@@ -71,16 +78,6 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="负载" width="120">
-          <template #default="{ row }">
-            <el-progress
-              :percentage="row.max_load ? Math.min(100, row.current_load / row.max_load * 100) : 0"
-              :stroke-width="8" :show-text="false" :color="loadColor(row)"
-              style="margin-bottom:2px;"
-            />
-            <span style="font-size:11px; color:#6b7280;">{{ row.current_load }} / {{ row.max_load }}</span>
-          </template>
-        </el-table-column>
 
         <el-table-column prop="phone" label="手机号" width="130" />
 
@@ -145,7 +142,10 @@
               <el-input v-model="form.email" />
             </el-form-item>
             <el-form-item label="飞书 Open ID">
-              <el-input v-model="form.feishu_open_id" placeholder="ou_xxxxx，用于飞书通知" />
+              <el-input v-model="form.feishu_open_id" placeholder="ou_xxxxx，用于飞书私聊通知" />
+            </el-form-item>
+            <el-form-item label="飞书 Chat ID">
+              <el-input v-model="form.feishu_chat_id" placeholder="oc_xxxxx / chat:xxx，用于群通知与群会话" />
             </el-form-item>
             <el-form-item label="状态" v-if="isEdit">
               <el-radio-group v-model="form.status">
@@ -214,13 +214,69 @@
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 待绑定飞书账号 -->
+    <el-dialog v-model="pendingVisible" title="🔗 待绑定飞书账号" width="900px" top="6vh">
+      <el-alert type="info" :closable="false" style="margin-bottom:12px;">
+        <template #title>
+          这些 open_id 来自用户给机器人发的消息。选定对应人员点「绑定」即可，
+          之后该用户就能使用「我的工单」等依赖飞书身份的功能。
+        </template>
+      </el-alert>
+
+      <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+        <el-input v-model="manualOpenId" placeholder="手动登记 open_id（ou_xxxxx）" clearable style="width:280px;" />
+        <el-input v-model="manualChatId" placeholder="chat_id（选填 oc_xxxxx）" clearable style="width:240px;" />
+        <el-button type="primary" :icon="Plus" @click="doManualRecord">登记</el-button>
+        <el-button :icon="Refresh" @click="loadPending">刷新</el-button>
+      </div>
+
+      <el-table
+        :data="pendingList" v-loading="pendingLoading" stripe max-height="420"
+        empty-text="暂无待绑定。用户发消息给机器人后会自动出现在这里。"
+      >
+        <el-table-column label="open_id" min-width="220">
+          <template #default="{ row }">
+            <span style="font-family: monospace; font-size: 12px;">{{ row.open_id }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="chat_id" width="170">
+          <template #default="{ row }">
+            <span v-if="row.chat_id" style="font-family: monospace; font-size: 11px;">{{ row.chat_id }}</span>
+            <span v-else style="color:#9ca3af;">-</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="message_count" label="消息数" width="80" />
+        <el-table-column label="最近消息" min-width="150" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span style="font-size:12px; color:#6b7280;">{{ row.last_text || "-" }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="绑定到" width="200">
+          <template #default="{ row }">
+            <el-select v-model="bindTarget[row.open_id]" filterable placeholder="选择人员" size="small" style="width:100%;">
+              <el-option
+                v-for="u in userOptions" :key="u.id" :value="u.id"
+                :label="u.name + '（' + u.role_label + '）'"
+              />
+            </el-select>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="140" fixed="right">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" link @click="doBind(row)">绑定</el-button>
+            <el-button size="small" type="danger" link @click="doDismiss(row)">忽略</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, computed, onMounted } from "vue";
 import { ElMessage } from "element-plus";
-import { Refresh, Search, Plus, Edit, Delete } from "@element-plus/icons-vue";
+import { Refresh, Search, Plus, Edit, Delete, Link } from "@element-plus/icons-vue";
 import api from "../api";
 
 const users = ref([]);
@@ -274,14 +330,6 @@ function roleTag(r) {
 function roleColor(r) {
   return { admin: "#ef4444", supervisor: "#f59e0b", engineer: "#4f46e5", agent: "#22c55e" }[r] || "#9ca3af";
 }
-function loadColor(row) {
-  if (!row.max_load) return "#9ca3af";
-  const p = row.current_load / row.max_load;
-  if (p >= 0.9) return "#ef4444";
-  if (p >= 0.7) return "#f59e0b";
-  return "#22c55e";
-}
-
 async function loadMeta() {
   try {
     meta.value = await api.getUsersMeta();
@@ -317,6 +365,7 @@ const defaultForm = () => ({
   phone: "",
   email: "",
   feishu_open_id: "",
+  feishu_chat_id: "",
   status: "online",
   skills: [],
   max_load: 10,
@@ -346,6 +395,7 @@ function openEdit(row) {
     phone: row.phone || "",
     email: row.email || "",
     feishu_open_id: row.feishu_open_id || "",
+    feishu_chat_id: row.feishu_chat_id || "",
     status: row.status || "online",
     skills: [...(row.skills || [])],
     max_load: row.max_load || 10,
@@ -372,6 +422,7 @@ async function save() {
       phone: form.value.phone.trim(),
       email: form.value.email.trim(),
       feishu_open_id: form.value.feishu_open_id.trim(),
+      feishu_chat_id: form.value.feishu_chat_id.trim(),
       skills: form.value.skills,
       max_load: form.value.max_load,
       permissions: form.value.permissions,
@@ -405,9 +456,77 @@ async function toggleStatus(row) {
   await load();
 }
 
+// ============ 待绑定飞书账号 ============
+const pendingVisible = ref(false);
+const pendingLoading = ref(false);
+const pendingList = ref([]);
+const bindTarget = reactive({});
+const manualOpenId = ref("");
+const manualChatId = ref("");
+
+const userOptions = computed(() => users.value);
+
+async function loadPending() {
+  pendingLoading.value = true;
+  try {
+    const r = await api.getPendingBindings();
+    pendingList.value = r.items || [];
+  } catch (e) { /* 拦截器已提示 */ } finally {
+    pendingLoading.value = false;
+  }
+}
+
+function openPending() {
+  pendingVisible.value = true;
+  return loadPending();
+}
+
+async function doBind(row) {
+  const uid = bindTarget[row.open_id];
+  if (!uid) return ElMessage.warning("请先选择要绑定的人员");
+  try {
+    const r = await api.bindPending({
+      open_id: row.open_id,
+      user_id: uid,
+      chat_id: row.chat_id || "",
+    });
+    ElMessage.success(`✅ 已绑定到 ${r.name}`);
+    await Promise.all([loadPending(), load()]);
+  } catch (e) { /* 拦截器已提示 */ }
+}
+
+async function doDismiss(row) {
+  try {
+    await api.dismissPending(row.open_id);
+    ElMessage.success("已忽略");
+    await loadPending();
+  } catch (e) { /* 拦截器已提示 */ }
+}
+
+async function doManualRecord() {
+  const oid = manualOpenId.value.trim();
+  if (!oid) return ElMessage.warning("请输入 open_id");
+  try {
+    const r = await api.recordPending({
+      open_id: oid,
+      chat_id: manualChatId.value.trim(),
+      note: "手动登记",
+    });
+    if (r.recorded === false) {
+      ElMessage.warning(r.reason || "该 open_id 已在待绑定列表中或已绑定");
+    } else {
+      ElMessage.success("✅ 已登记");
+    }
+    manualOpenId.value = "";
+    manualChatId.value = "";
+    await loadPending();
+  } catch (e) { /* 拦截器已提示 */ }
+}
+
 onMounted(async () => {
   await loadMeta();
   await load();
+  await loadPending();
 });
 </script>
 

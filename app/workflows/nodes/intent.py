@@ -1,8 +1,8 @@
-﻿"""意图识别节点：意图 + 槽位 + 多轮上下文（含 HITL 标记）。"""
+"""意图识别节点：意图 + 槽位 + 多轮上下文（含 HITL 标记）。"""
 from __future__ import annotations
 import re
 import time
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 
 from app.intent.factory import get_intent_engine, reload_intent_engine
 from app.workflows.state import AgentState
@@ -49,18 +49,24 @@ def _extract_slots(text: str) -> Dict:
     if m:
         slots["phone"] = m.group(1)
 
-    m = ERROR_CODE_RE.search(remaining)
+    # 错误码：优先从末尾 120 字符找（避免长上下文污染）
+    tail_for_code = text[-120:] if len(text) > 120 else text
+    m = ERROR_CODE_RE.search(tail_for_code)
     if m:
         slots["error_code"] = m.group(1).upper()
+        # 从 remaining 中移除，避免被后续 device_model 重复匹配
+        remaining = remaining.replace(m.group(1), " ")
 
     m = DEVICE_MODEL_CN_RE.search(remaining)
     if m:
         slots["device_model"] = m.group(1)
     else:
+        exclude = slots.get("error_code", "")
         m = DEVICE_MODEL_RE.search(remaining)
         if m:
             candidate = m.group(1)
-            if not (candidate.startswith(("O", "o")) and candidate[1:].isdigit()):
+            if (not (candidate.startswith(("O", "o")) and candidate[1:].isdigit())
+                    and candidate.upper() != exclude.upper()):
                 slots["device_model"] = candidate
 
     m = ADDRESS_RE.search(remaining)
@@ -82,6 +88,7 @@ def _extract_slots(text: str) -> Dict:
     if "error_code" in slots and "device_model" not in slots:
         slots["device_model"] = slots["error_code"]
 
+    print(f"[SLOT] text={text[:100]!r} -> {slots}")
     return slots
 
 
@@ -219,13 +226,6 @@ def _match_correction(text: str, mapping: dict):
 
 
 # ---------- 主节点 ----------
-def detect_intent(text: str) -> str:
-    _maybe_reload_engine()
-    engine = get_intent_engine()
-    top = engine.classify_top(text)
-    return top.id if top else "qa"
-
-
 def intent_node(state: AgentState) -> AgentState:
     _maybe_reload_engine()
 
@@ -264,8 +264,12 @@ def intent_node(state: AgentState) -> AgentState:
     # 3. 提取槽位
     new_slots = _extract_slots(text)
 
-    # 4. 多轮补槽位
+    # 4. 多轮补槽位：上一轮存在 pending 追问时，沿用上一轮意图（避免关键词歧义劫持）
+    prev_intent = state.get("intent")
+    prev_pending = bool(state.get("missing_slots")) and state.get("flow_status") == "waiting"
     followup_intent = _detect_followup_intent(messages_history)
+    if prev_pending and prev_intent:
+        followup_intent = prev_intent
     is_pure_slot = _is_pure_slot_input(text, new_slots)
 
     # 5. 意图引擎
@@ -291,6 +295,29 @@ def intent_node(state: AgentState) -> AgentState:
         hitl_reason = "用户请求转人工"
     elif intent_id == "complaint":
         hitl_reason = "用户投诉，需人工介入"
+
+    # 触发 HITL 时，通知主管（异步不阻塞）
+    if hitl_pending:
+        try:
+            from app.services.feishu_router import dispatch as _dispatch
+            _dispatch(
+                event="hitl_request",
+                title="🚨 用户请求人工",
+                content=f"理由：{hitl_reason}\n用户消息：{text[:100]}",
+            )
+        except Exception:
+            pass
+
+    # ============ 后处理：查看/我的工单 ≠ 建单 ============
+    if intent_id == "ticket":
+        has_create = any(w in text for w in
+            ["报修", "建单", "创建", "登记", "帮我报", "我要报",
+             "坏了", "报错", "报警", "出问题", "修一下", "故障"])
+        has_query = any(w in text for w in
+            ["查看", "查", "看", "我的", "列出", "有多少"])
+        if has_query and not has_create:
+            print(f"[INTENT] 后处理: ticket -> my_tickets")
+            intent_id = "my_tickets"
 
     return {
         **state,

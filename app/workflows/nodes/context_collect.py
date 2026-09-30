@@ -8,12 +8,12 @@ from app.workflows.state import AgentState
 
 
 CONTEXT_INTENTS = {
-    "return", "exchange", "refund", "repair",
+    "return", "exchange",
     "warranty", "invoice", "order_query", "logistics",
 }
 
 # 这些意图必须有订单号才能继续
-NEED_ORDER_INTENTS = {"return", "exchange", "refund", "invoice"}
+NEED_ORDER_INTENTS = {"return", "exchange", "invoice"}
 
 
 def _collect_order(svc, slots: Dict) -> Optional[Dict]:
@@ -52,6 +52,12 @@ def _collect_context(intent: str, slots: Dict) -> Dict[str, Any]:
                 ctx["days_since_received"] = (datetime.now() - delivered).days
             except Exception:
                 pass
+        if order.get("created_at"):
+            try:
+                created = datetime.fromisoformat(order["created_at"])
+                ctx["days_since_purchase"] = (datetime.now() - created).days
+            except Exception:
+                pass
         items = order.get("items") or []
         if items:
             sku = items[0].get("sku")
@@ -62,6 +68,8 @@ def _collect_context(intent: str, slots: Dict) -> Dict[str, Any]:
                     ctx["product"] = prod
                     ctx["category"] = prod.get("category")
                     ctx["warranty_days"] = prod.get("warranty_days")
+                    if ctx.get("days_since_purchase") is not None:
+                        ctx["in_warranty"] = ctx["days_since_purchase"] <= ctx["warranty_days"]
             except Exception as e:
                 errors.append(f"product: {e}")
             try:

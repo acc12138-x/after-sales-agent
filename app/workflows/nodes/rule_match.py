@@ -1,4 +1,4 @@
-﻿"""规则匹配节点：根据意图+上下文，用规则引擎匹配规则。"""
+"""规则匹配节点：根据意图+上下文，用规则引擎匹配规则。"""
 from __future__ import annotations
 from typing import Any, Dict
 
@@ -14,7 +14,6 @@ INTENT_TO_CATEGORY = {
     "refund_apply": "return",
     "compensation": "return",
     "warranty":     "warranty",
-    "repair":       "warranty",
     "order_query":  None,
     "logistics":    None,
     "invoice":      None,

@@ -22,10 +22,10 @@ http.interceptors.response.use(
   (resp) => resp.data,
   (err) => {
     const status = err.response && err.response.status;
-    if (status === 401 && !location.hash.includes("/login")) {
+    if (status === 401 && !location.pathname.startsWith("/login")) {
       localStorage.removeItem("auth_token");
       localStorage.removeItem("auth_user");
-      location.hash = "#/login";
+      window.location.href = "/login";
       ElMessage.error("登录已过期，请重新登录");
       return Promise.reject(err);
     }
@@ -91,6 +91,12 @@ export default {
   toggleUserStatus: (id) => http.post("/users/" + id + "/toggle-status"),
   getUserPermissions: (id) => http.get("/users/" + id + "/permissions"),
   checkUserPermission: (id, perm) => http.post("/users/" + id + "/check", { perm }),
+
+  // ---------- 待绑定飞书账号 ----------
+  getPendingBindings: () => http.get("/users/pending-bindings"),
+  bindPending: (data) => http.post("/users/pending-bindings/bind", data),
+  recordPending: (data) => http.post("/users/pending-bindings/record", data),
+  dismissPending: (openId) => http.delete("/users/pending-bindings/" + openId),
 
   listAudit: (params) => http.get("/logs/audit", { params }),
   listNotifications: (params) => http.get("/logs/notifications", { params }),

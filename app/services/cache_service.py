@@ -13,7 +13,7 @@ import os
 import sqlite3
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 import numpy as np
 
@@ -335,11 +335,6 @@ def get_cache():
     return _service
 
 
-def reset_cache() -> None:
-    global _service
-    _service = None
-
-
 # 保持旧接口
 def get_exact(query: str) -> Optional[dict]:
     return get_cache().get_exact(query)
@@ -351,3 +346,31 @@ def get_semantic(emb, threshold=SEMANTIC_THRESHOLD):
 
 def clear_all() -> int:
     return get_cache().clear_all()
+
+
+# ============================================================
+# 兼容旧接口：CacheService 包装类（tests/test_cache.py 使用）
+# ============================================================
+class CacheService:
+    """缓存服务包装：与 get_cache() 返回的后端等价，供旧调用方/测试使用。"""
+
+    def __init__(self):
+        self._backend = get_cache()
+
+    def get_exact(self, query: str) -> Optional[dict]:
+        return self._backend.get_exact(query)
+
+    def get_semantic(self, emb, threshold=SEMANTIC_THRESHOLD):
+        return self._backend.get_semantic(emb, threshold)
+
+    def set(self, query, response, intent="qa", embedding=None):
+        return self._backend.set(query, response, intent=intent, embedding=embedding)
+
+    def clear_all(self) -> int:
+        return self._backend.clear_all()
+
+    def clear_expired(self) -> int:
+        return self._backend.clear_expired()
+
+    def stats(self) -> dict:
+        return self._backend.stats()

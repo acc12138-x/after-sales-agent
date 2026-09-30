@@ -15,7 +15,7 @@ class ApprovalFlow(Base):
     steps = Column(Text, default="[]")  # JSON 步骤列表
     enabled = Column(Boolean, default=True)
     description = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
 
     def to_dict(self):
         import json

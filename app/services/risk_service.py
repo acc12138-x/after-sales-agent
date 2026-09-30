@@ -12,15 +12,15 @@ from app.db.session import session_scope
 
 RISK_RULES = [
     {"name": "高频退款", "weight": 30,
-     "check": lambda c, ctx: c.total_refunds >= 3},
+     "check": lambda c, ctx: (c.total_refunds or 0) >= 3},
     {"name": "退款率高", "weight": 25,
-     "check": lambda c, ctx: c.total_orders > 0 and c.total_refunds / max(c.total_orders, 1) >= 0.6},
+     "check": lambda c, ctx: (c.total_orders or 0) > 0 and (c.total_refunds or 0) / max(c.total_orders or 0, 1) >= 0.6},
     {"name": "多次投诉", "weight": 30,
      "check": lambda c, ctx: (c.total_complaints or 0) >= 2},
     {"name": "短期多退款", "weight": 25,
      "check": lambda c, ctx: ctx.get("recent_refunds", 0) >= 2},
     {"name": "低订单多退款", "weight": 15,
-     "check": lambda c, ctx: c.total_orders <= 3 and c.total_refunds >= 3},
+     "check": lambda c, ctx: (c.total_orders or 0) <= 3 and (c.total_refunds or 0) >= 3},
 ]
 
 
@@ -32,7 +32,7 @@ def check_risk(customer_id: str) -> Dict:
             return {"level": "unknown", "score": 0, "reasons": ["客户不存在"]}
 
         # 近 30 天退款次数
-        cutoff = datetime.utcnow() - timedelta(days=30)
+        cutoff = datetime.now() - timedelta(days=30)
         recent = s.execute(
             select(RefundRequest).where(
                 RefundRequest.customer_id == customer_id,

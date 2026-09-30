@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 from langgraph.types import interrupt
 
@@ -6,7 +6,6 @@ from app.workflows.state import AgentState
 
 CONFIDENCE_THRESHOLD = 0.5
 HIGH_RISK_INTENTS = {"human", "complaint"}
-HIGH_RISK_TOOLS = {"refund", "reassign"}
 SKIP_CONFIDENCE_INTENTS = {"ticket", "order_query", "logistics", "engineer_query"}
 
 
@@ -16,7 +15,9 @@ def need_hitl(state: AgentState) -> bool:
         return False
     if intent in HIGH_RISK_INTENTS:
         return True
-    if state.get("tool_name") in HIGH_RISK_TOOLS:
+    # 规则动作声明需要人工审批（action_exec 写入 action_result.need_human）
+    action_result = state.get("action_result") or {}
+    if action_result.get("need_human"):
         return True
     if state.get("flow_status") == "rejected":
         return False

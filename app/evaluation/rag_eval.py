@@ -9,9 +9,8 @@
 每个指标都用 LLM-as-judge：给 LLM 打分模板 → 解析 0-1 分数。
 """
 from __future__ import annotations
-import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Dict, List
 
 from app.workflows.nodes.generate import get_llm
 

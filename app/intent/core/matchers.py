@@ -5,7 +5,7 @@ import re
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, Type
 
-from app.intent.core.types import Intent, IntentContext, IntentMatch
+from app.intent.core.types import Intent, IntentContext
 
 
 class BaseMatcher(ABC):

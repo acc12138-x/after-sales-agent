@@ -1,6 +1,5 @@
 """SLA 时效管理服务。"""
 from __future__ import annotations
-import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional
@@ -47,7 +46,7 @@ def compute_deadline(ticket_type: str, urgent: bool = False,
     if not isinstance(rule, dict):
         rule = {"urgent": 4, "normal": 24}
     hours = rule.get("urgent" if urgent else "normal", 24)
-    base = created_at or datetime.utcnow()
+    base = created_at or datetime.now()
     return base + timedelta(hours=hours)
 
 
@@ -55,7 +54,7 @@ def check_ticket_sla(ticket: Ticket) -> str:
     """返回：normal / warning / overdue"""
     if not ticket.sla_deadline:
         return "normal"
-    now = datetime.utcnow()
+    now = datetime.now()
     if now > ticket.sla_deadline:
         return "overdue"
     total = (ticket.sla_deadline - ticket.created_at).total_seconds()
@@ -77,7 +76,7 @@ def get_ticket_sla_info(ticket: Ticket) -> Dict:
             "elapsed_ratio": 0.0,
         }
 
-    now = datetime.utcnow()
+    now = datetime.now()
     total = (ticket.sla_deadline - ticket.created_at).total_seconds()
     remain = (ticket.sla_deadline - now).total_seconds()
     status = check_ticket_sla(ticket)
@@ -94,75 +93,68 @@ def get_ticket_sla_info(ticket: Ticket) -> Dict:
 # ============================================================
 # 扫描 + 通知
 # ============================================================
-def _notify_sla(ticket: Ticket, new_status: str) -> None:
-    """发飞书通知（通过 notify/notifier.py）。"""
+def _notify_sla(ticket, new_status: str) -> bool:
+    """SLA 预警/超时：私聊负责人 + 主管知会 + 群广播。"""
+    import traceback
+    NL = chr(10)
     try:
-        from app.notify.notifier import send as notify
+        from sqlalchemy import select
         from app.db.models.user import User
+        from app.db.session import session_scope
+        from app.notify.notifier import send as notify
 
-        # 找工程师的飞书 open_id
-        target = ticket.assigned_to or "unknown"
+        target_name = ticket.assigned_to or ""
         feishu_id = ""
-
-        with session_scope() as s:
-            u = s.execute(
-                select(User).where(User.name == target)
-            ).scalar_one_or_none()
-            if u:
-                feishu_id = u.feishu_open_id or ""
-
-        # 找主管（用于超时告警）
+        feishu_chat_id = ""
         supervisor_ids = []
+
         with session_scope() as s:
-            sups = s.execute(
-                select(User).where(User.role == "supervisor")
-            ).scalars().all()
+            if target_name:
+                u = s.execute(select(User).where(User.name == target_name)).scalar_one_or_none()
+                if u:
+                    feishu_id = u.feishu_open_id or ""
+                    feishu_chat_id = u.feishu_chat_id or ""
+            sups = s.execute(select(User).where(User.role == "supervisor")).scalars().all()
             supervisor_ids = [x.feishu_open_id for x in sups if x.feishu_open_id]
 
-        if new_status == "warning":
-            content = (
-                f"设备：{ticket.device_model or '-'} 故障码：{ticket.error_code or '-'} "
-                f"截止：{ticket.sla_deadline} 请尽快处理。"
-            )
-            # 多群路由
-            if route_dispatch:
-                route_dispatch("sla_warning",
-                               f"🟠 SLA 预警 - {ticket.ticket_id}", content)
-            # 同时私聊工程师
-            notify(
-                target=feishu_id or target,
-                event="sla_warning",
-                title=f"🟠 SLA 预警 - {ticket.ticket_id}",
-                content=f"工单 {ticket.ticket_id} {content}",
-                channel="feishu",
-            )
-        elif new_status == "overdue":
-            content = (
-                f"设备：{ticket.device_model or '-'} 故障码：{ticket.error_code or '-'} "
-                f"截止：{ticket.sla_deadline} 负责人：{target} 请立即处理或改派。"
-            )
-            if route_dispatch:
-                route_dispatch("sla_overdue",
-                               f"🔴 SLA 超时 - {ticket.ticket_id}", content)
-            notify(
-                target=feishu_id or target,
-                event="sla_overdue",
-                title=f"🔴 SLA 超时 - {ticket.ticket_id}",
-                content=f"工单 {ticket.ticket_id} {content}",
-                channel="feishu",
-            )
-            # 同时通知所有主管
-            for sid in supervisor_ids:
-                notify(
-                    target=sid,
-                    event="sla_overdue_supervisor",
-                    title=f"🔴 工单超时 - {ticket.ticket_id}",
-                    content=content,
-                    channel="feishu",
-                )
-    except Exception as e:
-        print(f"[SLA] notify failed: {e}")
+        dev = ticket.device_model or "-"
+        err = ticket.error_code or "-"
+        deadline = str(ticket.sla_deadline)
 
+        if new_status == "warning":
+            title = "SLA warning " + ticket.ticket_id
+            content = "工单即将超时" + NL + "设备: " + dev + " 故障码: " + err + NL + "截止: " + deadline + NL + "负责人: " + (target_name or "未派单")
+            event = "sla_warning"
+        elif new_status == "overdue":
+            title = "SLA overdue " + ticket.ticket_id
+            content = "工单已超时" + NL + "设备: " + dev + " 故障码: " + err + NL + "截止: " + deadline + NL + "负责人: " + (target_name or "未派单")
+            event = "sla_overdue"
+        else:
+            return True
+
+        if feishu_id:
+            ok = notify(target=feishu_id, event=event, title=title, content=content, channel="feishu", chat_id=feishu_chat_id)
+            print("[SLA] private " + target_name + ": " + ("OK" if ok else "FAIL"))
+        else:
+            print("[SLA] " + (target_name or "unassigned") + " no feishu_id, skip private")
+
+        if new_status == "overdue":
+            for sid in supervisor_ids:
+                notify(target=sid, event="sla_overdue_supervisor",
+                       title=title, content=content, channel="feishu")
+            if supervisor_ids:
+                print("[SLA] notified supervisors: " + str(len(supervisor_ids)))
+
+        try:
+            from app.services.feishu_router import dispatch as _dispatch
+            _dispatch(event=event, title=title, content=content)
+        except Exception as e:
+            print("[SLA] dispatch skipped: " + str(e))
+
+        return True
+    except Exception:
+        traceback.print_exc()
+        return False
 
 def scan_all_tickets() -> dict:
     """扫描所有未关闭工单，更新 SLA 状态并通知。"""
@@ -183,9 +175,8 @@ def scan_all_tickets() -> dict:
                 t.sla_status = new_status
                 # 跳过 normal -> 只在 warning / overdue 时通知
                 if new_status in ("warning", "overdue"):
-                    stats["notified"] += 1
-                    # 在 session 外发通知
-                    _notify_sla(t, new_status)
+                    if _notify_sla(t, new_status):
+                        stats["notified"] += 1
 
     return stats
 

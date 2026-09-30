@@ -29,6 +29,7 @@ class UserCreate(BaseModel):
     phone: str = ""
     email: str = ""
     feishu_open_id: str = ""
+    feishu_chat_id: str = ""
     dept: str = ""
     permissions: dict = {}
 
@@ -44,6 +45,7 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     feishu_open_id: Optional[str] = None
+    feishu_chat_id: Optional[str] = None
     dept: Optional[str] = None
     permissions: Optional[dict] = None
 
@@ -65,6 +67,64 @@ async def get_meta():
         "role_permissions": ROLE_PERMISSIONS,
         "all_permissions": ALL_PERMISSIONS,
     }
+
+
+# ============================================================
+# 待绑定飞书账号
+# ============================================================
+class PendingBindRequest(BaseModel):
+    open_id: str
+    user_id: int
+    chat_id: str = ""
+
+
+class PendingRecordRequest(BaseModel):
+    open_id: str
+    chat_id: str = ""
+    note: str = ""
+
+
+@router.get("/pending-bindings")
+async def list_pending_bindings():
+    """列出收到过消息、但还没绑定到人员的飞书 open_id。"""
+    from app.services.binding_service import list_pending
+    items = list_pending()
+    return {"total": len(items), "items": items}
+
+
+@router.post("/pending-bindings/bind")
+async def bind_pending_binding(req: PendingBindRequest):
+    """把某个 open_id 绑定到指定人员。"""
+    from app.services.binding_service import bind
+    try:
+        return bind(req.open_id, req.user_id, req.chat_id or None)
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/pending-bindings/record")
+async def record_pending_binding(req: PendingRecordRequest):
+    """手动把一个 open_id 登记进待绑定列表。
+
+    入站链路（OpenClaw / 飞书事件回调）打通后会自动登记；
+    未打通时可先手工录入，绑定好再上线。
+    """
+    from app.services.binding_service import find_user_by_open_id, record_unbound
+    if find_user_by_open_id(req.open_id):
+        return {"recorded": False, "reason": "该 open_id 已绑定到人员"}
+    ok = record_unbound(req.open_id, req.chat_id, req.note)
+    return {"recorded": ok}
+
+
+@router.delete("/pending-bindings/{open_id}")
+async def dismiss_pending_binding(open_id: str):
+    """忽略（删除）一条待绑定记录。"""
+    from app.services.binding_service import dismiss
+    if not dismiss(open_id):
+        raise HTTPException(status_code=404, detail="待绑定记录不存在")
+    return {"dismissed": open_id}
 
 
 # ============================================================
@@ -126,6 +186,7 @@ async def create_user(req: UserCreate):
             phone=req.phone,
             email=req.email,
             feishu_open_id=req.feishu_open_id,
+            feishu_chat_id=req.feishu_chat_id,
             dept=req.dept,
             permissions=json.dumps(req.permissions or {}, ensure_ascii=False),
         )
@@ -164,6 +225,8 @@ async def update_user(user_id: int, req: UserUpdate):
             u.email = req.email
         if req.feishu_open_id is not None:
             u.feishu_open_id = req.feishu_open_id
+        if req.feishu_chat_id is not None:
+            u.feishu_chat_id = req.feishu_chat_id
         if req.dept is not None:
             u.dept = req.dept
         if req.permissions is not None:
@@ -182,10 +245,10 @@ async def delete_user(user_id: int):
         u = s.get(User, user_id)
         if u is None:
             raise HTTPException(status_code=404, detail="人员不存在")
-        if u.current_load > 0:
+        if (u.current_load or 0) > 0:
             raise HTTPException(
                 status_code=400,
-                detail=f"该人员还有 {u.current_load} 个进行中工单，无法删除",
+                detail=f"该人员还有 {u.current_load or 0} 个进行中工单，无法删除",
             )
         if u.role == "admin":
             raise HTTPException(status_code=400, detail="不能删除管理员")

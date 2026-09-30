@@ -19,7 +19,7 @@ from app.db.models.notification import Notification
 from app.db.models.user import User
 from app.db.session import session_scope
 from app.integrations.feishu_client import (
-    send_private, send_private_markdown, send_webhook,
+    send_private_markdown, send_webhook, send_smart,
 )
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "feishu_routes.yaml"
@@ -50,6 +50,9 @@ EVENT_TO_ROLES = {
     # 客户
     "customer_created":       ["agent"],
     "complaint":              ["supervisor"],
+
+    # HITL
+    "hitl_request":           ["supervisor"],
 }
 
 
@@ -107,7 +110,9 @@ def _get_users_by_roles(roles: List[str]) -> List[dict]:
             select(User).where(User.role.in_(roles), User.status == "online")
         ).scalars().all()
         return [
-            {"id": u.id, "name": u.name, "role": u.role, "open_id": u.feishu_open_id or ""}
+            {"id": u.id, "name": u.name, "role": u.role,
+             "open_id": u.feishu_open_id or "",
+             "chat_id": getattr(u, "feishu_chat_id", "") or ""}
             for u in rows
         ]
 
@@ -153,7 +158,9 @@ def dispatch(event: str, title: str, content: str,
             })
             continue
 
-        ok, err = send_private_markdown(oid, title, content)
+        # 智能发送：优先 chat_id（飞书限制 open_id 主动发单聊）
+        cid = u.get("chat_id", "") or ""
+        ok, err = send_smart(oid, title, content, chat_id=cid)
         _record_notification(
             channel="feishu_private",
             target=u["name"],
@@ -228,9 +235,9 @@ def dispatch_to_user(user_id: int, title: str, content: str,
         name = u.name
 
     if not oid:
-        return {"ok": False, "error": f"{name} 未配置飞书 open_id"}
+        return {"ok": False, "error": f"{name} 未配置飞书 ID（open_id 或 chat_id）"}
 
-    ok, err = send_private_markdown(oid, title, content)
+    ok, err = send_smart(oid, title, content)
     _record_notification(
         channel="feishu_private",
         target=name,
@@ -240,7 +247,7 @@ def dispatch_to_user(user_id: int, title: str, content: str,
         status="sent" if ok else "failed",
         error=err,
     )
-    return {"ok": ok, "error": err, "to": name, "open_id": oid[:20] + "..."}
+    return {"ok": ok, "error": err, "to": name, "target": oid[:24] + "..."}
 
 
 def list_config() -> Dict:

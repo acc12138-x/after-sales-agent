@@ -1,12 +1,6 @@
 # 已知故障码白名单（从产品手册、历史工单、规则引擎汇总）
 # 加新故障码只需加一行
 error_codes:
-  E1:
-    description: "通用故障 E1"
-  E2:
-    description: "通用故障 E2"
-  E3:
-    description: "通用故障 E3"
   E102:
     description: "温度传感器异常"
     aliases: ["温度传感器", "感温器"]
@@ -27,6 +21,6 @@ error_codes:
 # 校验规则
 validator:
   # 编辑距离阈值：距离 <= N 认为"可能打错"
-  edit_distance_threshold: 2
+  edit_distance_threshold: 1
   # 未知码是否允许建单
   allow_unknown: true

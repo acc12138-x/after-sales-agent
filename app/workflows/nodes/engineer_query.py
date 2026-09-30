@@ -1,11 +1,11 @@
 """查询工程师节点：支持查工程师信息 + 查某工程师的工单。"""
 from __future__ import annotations
 import re
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
 from sqlalchemy import select
 
-from app.db.models.engineer import Engineer
+from app.db.models.user import User
 from app.db.models.ticket import Ticket
 from app.db.session import session_scope
 from app.workflows.state import AgentState
@@ -30,14 +30,14 @@ def _wants_available(text: str) -> bool:
 def _list_available() -> List[dict]:
     with session_scope() as s:
         rows = s.execute(
-            select(Engineer).where(Engineer.status == "online").order_by(Engineer.current_load)
+            select(User).where(User.role == "engineer", User.status == "online").order_by(User.current_load)
         ).scalars().all()
         return [e.to_dict() for e in rows]
 
 
 def _find_by_name(name: str) -> Optional[dict]:
     with session_scope() as s:
-        e = s.execute(select(Engineer).where(Engineer.name == name)).scalar_one_or_none()
+        e = s.execute(select(User).where(User.role == "engineer", User.name == name)).scalar_one_or_none()
         return e.to_dict() if e else None
 
 

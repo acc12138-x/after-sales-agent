@@ -55,6 +55,7 @@ class EngineerCreate(BaseModel):
     region: str = ""
     phone: str = ""
     feishu_open_id: str = ""
+    feishu_chat_id: str = ""
     status: str = "online"
     max_load: int = 10
 
@@ -65,6 +66,7 @@ class EngineerUpdate(BaseModel):
     region: Optional[str] = None
     phone: Optional[str] = None
     feishu_open_id: Optional[str] = None
+    feishu_chat_id: Optional[str] = None
     status: Optional[str] = None
     max_load: Optional[int] = None
 
@@ -76,6 +78,7 @@ class EngineerResponse(BaseModel):
     region: str = ""
     phone: str = ""
     feishu_open_id: str = ""
+    feishu_chat_id: str = ""
     status: str
     current_load: int
     max_load: int

@@ -1,7 +1,7 @@
 """主管审批工作台 API。"""
 from __future__ import annotations
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -19,11 +19,6 @@ router = APIRouter(prefix="/approvals", tags=["approvals"])
 # ============================================================
 # Schemas
 # ============================================================
-class BatchApproveRequest(BaseModel):
-    refund_ids: List[str] = []
-    note: str = ""
-
-
 class RejectRequest(BaseModel):
     refund_id: str
     note: str = ""
@@ -97,6 +92,36 @@ async def list_pending(user: dict = Depends(get_current_user)):
                 "created_at": t.created_at.isoformat() if t.created_at else None,
             })
 
+        # 3. 全部未关闭工单（给审批台展示）
+        open_rows = s.execute(
+            select(Ticket).where(
+                Ticket.status.notin_(["closed", "cancelled"])
+            ).order_by(Ticket.created_at.desc()).limit(100)
+        ).scalars().all()
+
+        open_tickets = []
+        for t in open_rows:
+            open_tickets.append({
+                "ticket_id": t.ticket_id,
+                "status": t.status,
+                "assigned_to": t.assigned_to or "未派单",
+                "device_model": t.device_model,
+                "error_code": t.error_code,
+                "sla_status": t.sla_status or "normal",
+                "sla_deadline": t.sla_deadline.isoformat() if t.sla_deadline else None,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+                "ticket_type": t.ticket_type or "repair",
+            })
+
+        # 4. 统计
+        stats = {
+            "assigned": sum(1 for t in open_rows if t.status == "assigned"),
+            "in_progress": sum(1 for t in open_rows if t.status in ("accepted", "in_progress")),
+            "pending": sum(1 for t in open_rows if t.status == "pending"),
+            "resolved": sum(1 for t in open_rows if t.status == "resolved"),
+            "total_open": len(open_rows),
+        }
+
     # 按紧急度排序
     items.sort(key=lambda x: (0 if x.get("urgency") == "high" else 1, x.get("created_at") or ""))
 
@@ -104,6 +129,8 @@ async def list_pending(user: dict = Depends(get_current_user)):
         "total": len(items),
         "refunds": [x for x in items if x["type"] == "refund"],
         "overdue_tickets": [x for x in items if x["type"] == "overdue_ticket"],
+        "open_tickets": open_tickets,
+        "stats": stats,
     }
 
 
@@ -141,7 +168,7 @@ async def batch_approve_refund(
             r.status = "approved" if req.decision == "approve" else "rejected"
             r.approver = user.get("name") or "supervisor"
             r.approval_note = req.note or f"主管批量{'通过' if req.decision == 'approve' else '驳回'}"
-            r.approved_at = datetime.utcnow()
+            r.approved_at = datetime.now()
             updated.append(rid)
 
     # 审计
@@ -173,7 +200,7 @@ async def reassign_overdue_ticket(
         raise HTTPException(status_code=403, detail="需要改派权限")
 
     from app.api.routes.tickets import _pick_engineer
-    from app.db.models.engineer import Engineer
+    from app.db.models.user import User
 
     with session_scope() as s:
         t = s.get(Ticket, ticket_id)
@@ -182,7 +209,7 @@ async def reassign_overdue_ticket(
 
         old = t.assigned_to
         if t.assigned_engineer_id:
-            oe = s.get(Engineer, t.assigned_engineer_id)
+            oe = s.get(User, t.assigned_engineer_id)
             if oe and oe.current_load > 0:
                 oe.current_load -= 1
 
@@ -193,7 +220,7 @@ async def reassign_overdue_ticket(
         t.assigned_to = new_eng.name
         t.assigned_engineer_id = new_eng.id
         t.assign_count = (t.assign_count or 0) + 1
-        t.assigned_at = datetime.utcnow()
+        t.assigned_at = datetime.now()
         new_eng.current_load += 1
 
         result = {

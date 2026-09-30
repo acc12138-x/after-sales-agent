@@ -56,12 +56,12 @@ class Ticket(Base):
     assign_count = Column(Integer, default=0)
 
     # 时间戳
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=datetime.now, nullable=False)
     assigned_at = Column(DateTime)
     accepted_at = Column(DateTime)
     resolved_at = Column(DateTime)
     closed_at = Column(DateTime)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     @property
     def is_complete(self) -> bool:

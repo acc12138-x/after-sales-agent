@@ -1,8 +1,6 @@
 """后台管理 API：读取/更新配置、热重载引擎。"""
 from __future__ import annotations
 
-import os
-import re
 from pathlib import Path
 from typing import Any, Dict
 
@@ -204,7 +202,7 @@ async def dashboard_stats():
     from datetime import datetime, timedelta
     from sqlalchemy import func, select
     from app.db.models.ticket import Ticket
-    from app.db.models.engineer import Engineer
+    from app.db.models.user import User
     from app.db.models.audit_log import AuditLog
     from app.db.models.notification import Notification
     from app.db.session import session_scope
@@ -221,7 +219,7 @@ async def dashboard_stats():
         status_dist = {r[0]: r[1] for r in status_rows}
 
         # 2. 近 7 天新增
-        today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+        today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
         days = []
         for i in range(6, -1, -1):
             d_start = today - timedelta(days=i)
@@ -235,7 +233,7 @@ async def dashboard_stats():
 
         # 3. 工程师负载
         eng_rows = s.execute(
-            select(Engineer.name, Engineer.current_load, Engineer.max_load, Engineer.status)
+            select(User.name, User.current_load, User.max_load, User.status).where(User.role == "engineer")
         ).all()
         engineers = [
             {"name": r[0], "load": r[1], "max": r[2], "status": r[3]}

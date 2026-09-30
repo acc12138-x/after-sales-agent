@@ -7,7 +7,7 @@
 4. 保存结果 JSON
 """
 from __future__ import annotations
-import os, sys, json, time
+import os, sys, json
 from datetime import datetime
 from pathlib import Path
 
@@ -62,8 +62,7 @@ for i, item in enumerate(testset["items"], 1):
 print(f"  收集完成：{len(records)} 条")
 
 # 保存原始记录
-with open("data/ragas/raw_runs.json", "w", encoding="utf-8", newline="
-") as f:
+with open("data/ragas/raw_runs.json", "w", encoding="utf-8", newline="\n") as f:
     json.dump(records, f, ensure_ascii=False, indent=2)
 print("  [OK] 原始数据 -> data/ragas/raw_runs.json")
 
@@ -169,8 +168,7 @@ try:
         "metrics": summary,
         "per_question": df.to_dict(orient="records"),
     }
-    with open("data/ragas/result.json", "w", encoding="utf-8", newline="
-") as f:
+    with open("data/ragas/result.json", "w", encoding="utf-8", newline="\n") as f:
         json.dump(out, f, ensure_ascii=False, indent=2, default=str)
     print(f"[OK] 结果 -> data/ragas/result.json")
 

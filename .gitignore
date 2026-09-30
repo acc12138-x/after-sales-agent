@@ -22,11 +22,14 @@ data/
 logs/
 *.db
 *.sqlite
+*.db-shm
+*.db-wal
 *.log
 
 # ===== IDE =====
 .idea/
 .vscode/
+.claude/
 
 # ===== frp =====
 frp/
@@ -38,17 +41,22 @@ frontend/node_modules/
 frontend/dist/
 frontend/.vite/
 
-# ===== 备份与临时 =====
+# ===== 备份与归档 =====
 _backup_*/
-*.bak
-*.bak_*
-_diag_*.py
-_theme.css
+_archive/
+*.bak*
 _*.py
+_*.txt
+_*.log
+
+# ===== 临时文件 =====
+*.tmp
+*.orig
+*.rej
 
 # ===== 系统 =====
 .DS_Store
 Thumbs.db
 
-# Redis Windows ������
+# ===== 工具二进制 =====
 tools/

@@ -37,8 +37,8 @@ class RefundRequest(Base):
     approval_note = Column(Text, nullable=True)
     approved_at = Column(DateTime, nullable=True)
     executed_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     def can_transition_to(self, new_status: str) -> bool:
         return new_status in REFUND_FLOW.get(self.status, [])

@@ -1,6 +1,5 @@
 
 from __future__ import annotations
-from typing import Dict, List
 
 from app.config.settings import get_settings
 from app.rag.retriever import HybridRetriever

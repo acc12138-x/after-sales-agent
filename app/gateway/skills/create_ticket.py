@@ -37,7 +37,7 @@ def create_ticket(
         "description": description,
         "contact": contact,
         "address": address,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now().isoformat(),
     }
 
 

@@ -4,6 +4,20 @@
 
     <el-card shadow="never" style="margin-bottom:16px;">
       <el-form inline>
+        <el-form-item label="关键词">
+          <el-input
+            v-model="filters.keyword"
+            placeholder="客户ID / 姓名 / 手机号 / 邮箱"
+            clearable
+            style="width:240px;"
+            @keyup.enter="load"
+            @clear="load"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </el-form-item>
         <el-form-item label="VIP 等级">
           <el-select v-model="filters.vip_level" clearable placeholder="全部" style="width:120px;" @change="load">
             <el-option value="normal" label="普通" />
@@ -277,7 +291,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from "vue";
 import { ElMessage } from "element-plus";
-import { Loading, UploadFilled } from "@element-plus/icons-vue";
+import { Loading, UploadFilled, Search } from "@element-plus/icons-vue";
 import axios from "axios";
 
 const api = axios.create({ baseURL: "/api" });
@@ -285,7 +299,7 @@ api.interceptors.response.use(r => r.data, e => { ElMessage.error(e?.response?.d
 
 const customers = ref([]);
 const loading = ref(false);
-const filters = reactive({ vip_level: "", risk_level: "" });
+const filters = reactive({ vip_level: "", risk_level: "", keyword: "" });
 
 function vipText(v) { return { normal: "普通", silver: "白银", gold: "黄金", diamond: "钻石" }[v] || v; }
 function vipType(v) { return { normal: "info", silver: "", gold: "warning", diamond: "danger" }[v] || "info"; }
@@ -299,6 +313,7 @@ async function load() {
     const params = {};
     if (filters.vip_level) params.vip_level = filters.vip_level;
     if (filters.risk_level) params.risk_level = filters.risk_level;
+    if (filters.keyword && filters.keyword.trim()) params.keyword = filters.keyword.trim();
     customers.value = await api.get("/customers", { params });
   } finally { loading.value = false; }
 }

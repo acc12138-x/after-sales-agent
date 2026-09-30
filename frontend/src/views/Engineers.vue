@@ -153,7 +153,10 @@
           <el-input v-model="form.phone" placeholder="选填" />
         </el-form-item>
         <el-form-item label="飞书 Open ID">
-          <el-input v-model="form.feishu_open_id" placeholder="选填，用于通知" />
+          <el-input v-model="form.feishu_open_id" placeholder="ou_xxxxx，选填，用于私聊通知" />
+        </el-form-item>
+        <el-form-item label="飞书 Chat ID">
+          <el-input v-model="form.feishu_chat_id" placeholder="oc_xxxxx，选填，用于群通知" />
         </el-form-item>
         <el-form-item label="最大承接工单">
           <el-input-number v-model="form.max_load" :min="1" :max="50" />
@@ -232,6 +235,7 @@ const defaultForm = () => ({
   region: "",
   phone: "",
   feishu_open_id: "",
+  feishu_chat_id: "",
   status: "online",
   max_load: 10,
 });
@@ -259,6 +263,7 @@ function openEdit(row) {
     region: row.region || "",
     phone: row.phone || "",
     feishu_open_id: row.feishu_open_id || "",
+    feishu_chat_id: row.feishu_chat_id || "",
     status: row.status || "online",
     max_load: row.max_load || 10,
   };
@@ -276,6 +281,7 @@ async function save() {
       region: form.value.region.trim(),
       phone: form.value.phone.trim(),
       feishu_open_id: form.value.feishu_open_id.trim(),
+      feishu_chat_id: form.value.feishu_chat_id.trim(),
       max_load: form.value.max_load,
     };
 

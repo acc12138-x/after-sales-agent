@@ -1,6 +1,5 @@
 
 from __future__ import annotations
-import re
 
 import os
 
@@ -36,11 +35,65 @@ async def sla_scanner():
         await asyncio.sleep(300)  # 5 分钟
 
 
+async def _warmup_rag():
+    """后台预热 RAG：加载 Chroma、embedding、BM25。
+
+    避免第一条用户消息等 30 秒。
+    """
+    import asyncio as _aio
+
+    def _sync_warmup():
+        import time as _t
+        t0 = _t.time()
+
+        # 1. 预热 embedding API
+        try:
+            from app.rag.embedding import embed_query
+            embed_query("warmup")
+            print(f"[WARMUP] embedding 就绪 ({_t.time()-t0:.2f}s)")
+        except Exception as e:
+            print(f"[WARMUP] embedding 失败: {e}")
+
+        # 2. 预热 Chroma（触发 HNSW 索引加载）
+        t1 = _t.time()
+        try:
+            from app.workflows.nodes.rag_search import get_retriever
+            r = get_retriever()
+            cnt = r.count()
+            print(f"[WARMUP] Chroma 就绪 chunks={cnt} ({_t.time()-t1:.2f}s)")
+        except Exception as e:
+            print(f"[WARMUP] Chroma 失败: {e}")
+
+        # 3. 预热 BM25 索引（走一次空查询）
+        t2 = _t.time()
+        try:
+            r.search_bm25("warmup", k=1)
+            print(f"[WARMUP] BM25 就绪 ({_t.time()-t2:.2f}s)")
+        except Exception as e:
+            print(f"[WARMUP] BM25 失败: {e}")
+
+        # 4. 预热向量检索（真正触发 Chroma query）
+        t3 = _t.time()
+        try:
+            r.search_vector("warmup", k=1)
+            print(f"[WARMUP] 向量检索就绪 ({_t.time()-t3:.2f}s)")
+        except Exception as e:
+            print(f"[WARMUP] 向量检索失败: {e}")
+
+        print(f"[WARMUP] 全部完成 ({_t.time()-t0:.2f}s)")
+
+    # 放到线程池，别阻塞 event loop
+    await _aio.get_running_loop().run_in_executor(None, _sync_warmup)
+
+
 @asynccontextmanager
 async def lifespan(app):
     """启动时挂后台任务。"""
     task = asyncio.create_task(sla_scanner())
     print("[启动] SLA 定时扫描已启动（每 5 分钟）")
+    # 后台预热（不阻塞 FastAPI 启动）
+    asyncio.create_task(_warmup_rag())
+    print("[启动] RAG 预热任务已挂载")
     yield
     task.cancel()
     print("[关闭] SLA 定时扫描已停止")
@@ -48,7 +101,7 @@ async def lifespan(app):
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
-    description="企业售后知识库智能问答与工单自动化 Agent 平台",
+    description="企业对话式企业业务 Agent 平台",
     lifespan=lifespan,
 )
 

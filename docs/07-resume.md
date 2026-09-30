@@ -2,12 +2,12 @@
 
 ## 精简版（2 行）
 
-> **企业售后知识库智能问答与工单自动化 Agent 平台**
+> **企业对话式企业业务 Agent 平台**
 > 基于 LangGraph + RAG + Vue 3 的企业级售后 Agent，支持多渠道接入、混合召回检索、工单状态机、HITL 人工审批、客户资产、退款风控、SLA 时效、JWT 权限体系、语义缓存。检索召回率 **0.875**，缓存命中加速 **20x**。
 
 ## 详情版（14 条 bullet）
 
-- **项目**：售后知识库智能问答与工单自动化 Agent 平台（个人项目）
+- **项目**：对话式企业业务 Agent 平台（个人项目）
 - **技术栈**：LangGraph · LangChain · RAG · Ollama/Qwen · Chroma · FastAPI · MySQL · Vue 3 · Element Plus · JWT · Docker · OpenClaw
 - **RAG 检索**：父子块切片 + BM25/向量混合召回 + RRF 融合 + bge-m3 重排；自研评估框架 4 指标量化，context_recall 0.875
 - **Agent 编排**：LangGraph 状态机实现意图识别 → 上下文收集 → 规则匹配 → 动作执行 → HITL 审批，支持跨系统中断恢复（SQLite checkpointer）

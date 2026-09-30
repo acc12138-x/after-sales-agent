@@ -1,7 +1,7 @@
 """意图识别引擎：与业务无关。"""
 from __future__ import annotations
 
-from typing import Callable, Dict, Iterable, List, Optional
+from typing import Callable, Iterable, List, Optional
 
 from app.intent.core.matchers import BaseMatcher, KeywordAndRegexMatcher
 from app.intent.core.types import Intent, IntentContext, IntentMatch

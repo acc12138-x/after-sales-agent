@@ -11,7 +11,7 @@ from app.api.schemas.models import (
     TicketCreateRequest, TicketResponse, TicketUpdateRequest,
 )
 from app.audit.logger import log as audit_log
-from app.db.models.engineer import Engineer
+from app.db.models.user import User
 from app.db.models.ticket import Ticket
 from app.db.session import session_scope
 from app.notify.notifier import send as notify
@@ -30,9 +30,35 @@ class ResolveRequest(BaseModel):
 
 
 # ---------- 内部工具 ----------
+ACTIVE_STATUSES = {"pending", "assigned", "accepted", "in_progress"}
+
+
+def _sync_engineer_load(s, ticket, old_status: str, new_status: str):
+    """工单状态变更时同步工程师 current_load。
+
+    规则：
+    - 活跃(pending/assigned/accepted/in_progress) → 非活跃(resolved/closed/rejected/cancelled)：-1
+    - 非活跃 → 活跃：+1
+    - 其它情况：不变
+    """
+    if not ticket.assigned_engineer_id:
+        return
+    was_active = old_status in ACTIVE_STATUSES
+    is_active = new_status in ACTIVE_STATUSES
+    if was_active == is_active:
+        return
+    eng = s.get(User, ticket.assigned_engineer_id)
+    if eng is None:
+        return
+    if is_active:
+        eng.current_load = (eng.current_load or 0) + 1
+    else:
+        eng.current_load = max(0, (eng.current_load or 0) - 1)
+
+
 def _pick_engineer(s, error_code: Optional[str], exclude_names: Optional[list] = None):
     exclude_names = exclude_names or []
-    rows = s.execute(select(Engineer).where(Engineer.status == "online")).scalars().all()
+    rows = s.execute(select(User).where(User.role == "engineer", User.status == "online")).scalars().all()
     candidates = [e for e in rows
                   if e.current_load < e.max_load and e.name not in exclude_names]
     if not candidates:
@@ -90,7 +116,7 @@ def do_create_ticket(
         if engineer is None:
             raise HTTPException(status_code=503, detail="当前无可用工程师")
 
-        created = datetime.utcnow()
+        created = datetime.now()
         # 从意图推断 ticket_type（如有）
         ttype = "repair"
         if description:
@@ -175,7 +201,7 @@ def do_update_ticket(ticket_id: str, req: TicketUpdateRequest) -> dict:
 
         # 重新计算缺失字段
         t.missing_fields = _compute_missing(t.device_model, t.error_code)
-        t.updated_at = datetime.utcnow()
+        t.updated_at = datetime.now()
         s.flush()
         result = t.to_dict()
 
@@ -222,11 +248,26 @@ async def get_ticket(ticket_id: str):
 
 
 @router.get("")
-async def list_all_tickets(status: Optional[str] = None, incomplete_only: bool = False):
+async def list_all_tickets(
+    status: Optional[str] = None,
+    incomplete_only: bool = False,
+    keyword: Optional[str] = None,
+):
+    from sqlalchemy import or_
     with session_scope() as s:
         q = select(Ticket).order_by(Ticket.created_at.desc())
         if status:
             q = q.where(Ticket.status == status)
+        if keyword:
+            kw = f"%{keyword.strip()}%"
+            q = q.where(or_(
+                Ticket.ticket_id.like(kw),
+                Ticket.device_model.like(kw),
+                Ticket.error_code.like(kw),
+                Ticket.assigned_to.like(kw),
+                Ticket.description.like(kw),
+                Ticket.contact.like(kw),
+            ))
         rows = s.execute(q).scalars().all()
         items = []
         for t in rows:
@@ -259,21 +300,20 @@ def _transition(ticket_id: str, new_status: str, extra: dict = None) -> dict:
 
         old_status = t.status
         t.status = new_status
-        t.updated_at = datetime.utcnow()
+        t.updated_at = datetime.now()
         if extra:
             for k, v in extra.items():
                 setattr(t, k, v)
 
         if new_status == "accepted":
-            t.accepted_at = datetime.utcnow()
+            t.accepted_at = datetime.now()
         elif new_status == "resolved":
-            t.resolved_at = datetime.utcnow()
-            if t.assigned_engineer_id:
-                eng = s.get(Engineer, t.assigned_engineer_id)
-                if eng and eng.current_load > 0:
-                    eng.current_load -= 1
+            t.resolved_at = datetime.now()
         elif new_status == "closed":
-            t.closed_at = datetime.utcnow()
+            t.closed_at = datetime.now()
+
+        # 统一同步负载（不会重复减，跨活跃边界才动）
+        _sync_engineer_load(s, t, old_status, new_status)
 
         result = t.to_dict()
         result["_old_status"] = old_status
@@ -307,7 +347,7 @@ async def reject_ticket(ticket_id: str, req: RejectRequest):
 
         old_engineer = t.assigned_to
         if t.assigned_engineer_id:
-            old_eng = s.get(Engineer, t.assigned_engineer_id)
+            old_eng = s.get(User, t.assigned_engineer_id)
             if old_eng and old_eng.current_load > 0:
                 old_eng.current_load -= 1
 
@@ -322,7 +362,7 @@ async def reject_ticket(ticket_id: str, req: RejectRequest):
             t.assigned_engineer_id = new_eng.id
             t.reject_reason = req.reason
             t.assign_count = (t.assign_count or 0) + 1
-            t.assigned_at = datetime.utcnow()
+            t.assigned_at = datetime.now()
             new_eng.current_load += 1
             result = t.to_dict()
             result["new_engineer"] = new_eng.name

@@ -73,11 +73,12 @@ class User(Base):
     phone = Column(String(32), default="")
     email = Column(String(128), default="")
     feishu_open_id = Column(String(128), default="")
+    feishu_chat_id = Column(String(128), default="")
     dept = Column(String(64), default="")
     permissions = Column(Text, default="{}")        # {"allow":[], "deny":[]}
     password_hash = Column(String(256), default="") # 管理后台登录
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     @property
     def skill_list(self) -> list:
@@ -126,6 +127,7 @@ class User(Base):
             "phone": self.phone,
             "email": self.email,
             "feishu_open_id": self.feishu_open_id,
+            "feishu_chat_id": self.feishu_chat_id or "",
             "dept": self.dept,
             "permissions": self.permission_overrides,
             "created_at": _iso(self.created_at),

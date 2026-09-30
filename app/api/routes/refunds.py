@@ -25,11 +25,24 @@ def _to_resp(r: RefundRequest) -> RefundResponse:
 
 
 @router.get("")
-async def list_refunds(status: Optional[str] = None):
+async def list_refunds(
+    status: Optional[str] = None,
+    keyword: Optional[str] = None,
+):
+    from sqlalchemy import or_
     with session_scope() as s:
         q = select(RefundRequest).order_by(RefundRequest.created_at.desc())
         if status:
             q = q.where(RefundRequest.status == status)
+        if keyword:
+            kw = f"%{keyword.strip()}%"
+            q = q.where(or_(
+                RefundRequest.refund_id.like(kw),
+                RefundRequest.customer_id.like(kw),
+                RefundRequest.order_id.like(kw),
+                RefundRequest.ticket_id.like(kw),
+                RefundRequest.reason.like(kw),
+            ))
         rows = s.execute(q).scalars().all()
         return {"total": len(rows), "items": [r.to_dict() for r in rows]}
 
@@ -67,7 +80,7 @@ async def create_refund(req: RefundCreateRequest):
             ai_confidence=decision["confidence"],
             ai_reason=decision["reason"],
             risk_flag=risk["level"] if risk["level"] != "normal" else "",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(),
         )
         s.add(r)
         s.flush()
@@ -119,12 +132,12 @@ async def approve_refund(refund_id: str, req: RefundApprovalRequest):
 
         r.approver = "admin"
         r.approval_note = req.note
-        r.approved_at = datetime.utcnow()
+        r.approved_at = datetime.now()
         s.flush()
         result = r.to_dict()
 
     audit_log(
-        action=f"refund.{req.decision}d",
+        action=f"refund.{'approved' if req.decision == 'approve' else 'rejected'}",
         actor="admin",
         target_type="refund",
         target_id=refund_id,
@@ -149,7 +162,7 @@ async def execute_refund(refund_id: str):
         if r.status != "approved":
             raise HTTPException(status_code=400, detail=f"当前状态 {r.status} 不可执行")
         r.status = "executed"
-        r.executed_at = datetime.utcnow()
+        r.executed_at = datetime.now()
         s.flush()
         result = r.to_dict()
 
@@ -216,7 +229,7 @@ def do_create_refund(
             ai_confidence=decision["confidence"],
             ai_reason=decision["reason"],
             risk_flag=risk["level"] if risk["level"] != "normal" else "",
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(),
         )
         s.add(r)
         s.flush()

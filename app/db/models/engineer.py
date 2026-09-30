@@ -20,8 +20,8 @@ class Engineer(Base):
     status = Column(String(16), default="online")      # online / offline / busy
     current_load = Column(Integer, default=0)          # 当前工单数
     max_load = Column(Integer, default=10)             # 最大承接数
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     @property
     def skill_list(self) -> list:

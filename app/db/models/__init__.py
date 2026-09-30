@@ -7,8 +7,9 @@ from app.db.models.customer import Customer
 from app.db.models.order import Order
 from app.db.models.refund import RefundRequest
 from app.db.models.approval import ApprovalFlow
+from app.db.models.pending_binding import PendingBinding
 
 __all__ = [
     "Ticket", "Engineer", "User", "AuditLog", "Notification",
-    "Customer", "Order", "RefundRequest", "ApprovalFlow",
+    "Customer", "Order", "RefundRequest", "ApprovalFlow", "PendingBinding",
 ]

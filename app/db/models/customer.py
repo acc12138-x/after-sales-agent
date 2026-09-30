@@ -1,7 +1,7 @@
 """客户资产模型：客户 + VIP + 风险等级。"""
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy import Column, DateTime, Integer, Numeric, String, Text
+from sqlalchemy import Column, DateTime, Integer, String
 from app.db.base import Base
 
 
@@ -20,8 +20,8 @@ class Customer(Base):
     total_refunds = Column(Integer, default=0)
     total_complaints = Column(Integer, default=0)
     total_tickets = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
 
     def to_dict(self):
         def _iso(dt): return dt.isoformat() if dt else None

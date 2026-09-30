@@ -1,7 +1,6 @@
 """知识库管理 API：上传文件、列出文档、删除文档。"""
 from __future__ import annotations
 import io
-from typing import List
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
@@ -172,6 +171,75 @@ async def delete_doc(doc_id: str):
     return {"deleted": len(to_delete), "doc_id": doc_id}
 
 
+# ============================================================
+# 更新文档（编辑）
+# ============================================================
+from pydantic import BaseModel as _PM
+
+
+class _UpdateDocReq(_PM):
+    content: str
+    source: str = ""
+    new_doc_id: str = ""
+
+
+@router.put("/docs/{doc_id}")
+async def update_doc(doc_id: str, req: _UpdateDocReq):
+    """更新文档：删除旧的切片，用新内容重新入库。
+
+    - content：新文本（必填）
+    - source：来源（可选，不改则保留）
+    - new_doc_id：想改 ID 时填（可选）
+    """
+    retriever = get_retriever()
+
+    # 1. 读旧 metadatas 拿 source
+    try:
+        res = retriever.collection.get(include=["metadatas"])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    ids = res.get("ids", []) or []
+    metas = res.get("metadatas", []) or []
+
+    old_source = ""
+    to_delete = []
+    for i, m in enumerate(metas):
+        if m and m.get("doc_id") == doc_id:
+            to_delete.append(ids[i])
+            if not old_source:
+                old_source = m.get("source", "")
+
+    if not to_delete:
+        raise HTTPException(status_code=404, detail=f"文档 {doc_id} 不存在")
+
+    final_source = req.source or old_source or "manual"
+    final_doc_id = (req.new_doc_id or doc_id).strip()
+
+    # 2. 删旧
+    retriever.collection.delete(ids=to_delete)
+
+    # 3. 新内容 chunk + index
+    chunks = chunk_document(req.content, doc_id=final_doc_id, source=final_source)
+    retriever.index_chunks(chunks)
+
+    # 4. 清缓存
+    try:
+        from app.services.cache_service import get_cache
+        get_cache().clear_all()
+    except Exception:
+        pass
+
+    return {
+        "old_doc_id": doc_id,
+        "doc_id": final_doc_id,
+        "source": final_source,
+        "deleted": len(to_delete),
+        "new_chunks": len(chunks),
+        "total_in_collection": retriever.count(),
+    }
+
+
 @router.get("/stats")
 async def stats():
     retriever = get_retriever()
@@ -200,7 +268,7 @@ async def get_doc_detail(doc_id: str):
             "type": m.get("type"),
             "section_index": m.get("section_index", 0),
             "sub_index": m.get("sub_index", 0),
-            "heading": m.get("heading", ""),
+            "heading": m.get("heading_path", ""),
             "source": m.get("source", ""),
             "parent_id": m.get("parent_id", ""),
             "text": docs[i] or "",

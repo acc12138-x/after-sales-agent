@@ -1,7 +1,6 @@
 """飞书配置 + 通知测试 API。"""
 from __future__ import annotations
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -65,7 +64,7 @@ async def update_webhook(req: WebhookUpdate, user: dict = Depends(get_current_us
 
     channels = cfg.setdefault("channels", {})
     ch = channels.setdefault(req.channel, {"label": req.channel, "at_all": False})
-    ch["webhook"] = req.webhook
+    ch["webhook"] = req.webhook or ch.get("webhook", "")
     ch["at_all"] = req.at_all
 
     with open(CONFIG_PATH, "w", encoding="utf-8", newline="\n") as f:

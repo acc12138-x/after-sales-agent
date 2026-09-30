@@ -36,7 +36,7 @@ async def rules():
 # 规则编辑
 # ============================================================
 from pydantic import BaseModel
-from typing import Any, Dict
+from typing import Dict
 
 
 class RuleItem(BaseModel):

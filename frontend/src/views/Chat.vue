@@ -170,10 +170,8 @@ async function send() {
 
     const dt = ((Date.now() - t0) / 1000).toFixed(2);
 
+    // 后端已拼好【需要人工确认】前缀，前端不再重复拼接
     let answer = resp.answer || "（后端返回空）";
-    if (resp.hitl_pending) {
-      answer = "**【需要人工确认】** " + (resp.hitl_reason || "") + "\n\n" + answer;
-    }
 
     messages.value.push({
       role: "assistant",

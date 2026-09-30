@@ -34,19 +34,10 @@ def get_user_by_feishu(open_id: str) -> Optional[dict]:
     if not open_id:
         return None
     with session_scope() as s:
+        # 用 .first() 容忍脏数据（多个用户共用同一 open_id 时不报错）
         u = s.execute(
             select(User).where(User.feishu_open_id == open_id)
-        ).scalar_one_or_none()
-        if u is None:
-            return None
-        return _user_to_dict(u)
-
-
-def get_user_by_name(name: str) -> Optional[dict]:
-    if not name:
-        return None
-    with session_scope() as s:
-        u = s.execute(select(User).where(User.name == name)).scalar_one_or_none()
+        ).scalars().first()
         if u is None:
             return None
         return _user_to_dict(u)

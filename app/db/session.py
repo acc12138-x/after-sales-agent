@@ -1,6 +1,5 @@
 """数据库连接与会话管理。"""
 from __future__ import annotations
-import os
 
 from contextlib import contextmanager
 from typing import Optional

@@ -4,8 +4,8 @@
       <div class="login-logo">
         <el-icon :size="40"><Tools /></el-icon>
       </div>
-      <h1 class="login-title">售后助手</h1>
-      <p class="login-sub">Enterprise After-Sales Agent</p>
+      <h1 class="login-title">业务助手</h1>
+      <p class="login-sub">Enterprise Business Agent</p>
 
       <el-form :model="form" :rules="rules" ref="formRef" @submit.prevent="doLogin">
         <el-form-item prop="name">
@@ -56,7 +56,11 @@ function quickFill(n, p) {
 }
 
 async function doLogin() {
-  await formRef.value.validate();
+  try {
+    await formRef.value.validate();
+  } catch {
+    return;
+  }
   loading.value = true;
   try {
     const r = await api.login({ name: form.name, password: form.password });

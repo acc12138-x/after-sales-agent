@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional
 
 from app.intent.core.engine import IntentEngine
 from app.intent.loaders.yaml_loader import YamlIntentLoader

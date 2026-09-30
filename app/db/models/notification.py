@@ -16,7 +16,7 @@ class Notification(Base):
     content = Column(Text, default="")
     status = Column(String(16), default="sent")        # sent / failed / pending
     error = Column(Text, default="")
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=datetime.now, index=True)
 
     def to_dict(self):
         return {

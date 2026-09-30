@@ -15,7 +15,7 @@ class AuditLog(Base):
     target_id = Column(String(64), default="")          # 目标 ID
     detail = Column(Text, default="")                   # JSON 详情
     result = Column(String(16), default="ok")           # ok / fail
-    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    created_at = Column(DateTime, default=datetime.now, index=True)
 
     def to_dict(self):
         return {

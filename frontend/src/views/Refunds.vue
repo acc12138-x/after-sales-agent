@@ -14,6 +14,20 @@
 
     <el-card shadow="never" style="margin-bottom:16px;">
       <el-form inline>
+        <el-form-item label="关键词">
+          <el-input
+            v-model="keyword"
+            placeholder="退款单号 / 客户ID / 订单号 / 工单号"
+            clearable
+            style="width:280px;"
+            @keyup.enter="load"
+            @clear="load"
+          >
+            <template #prefix>
+              <el-icon><Search /></el-icon>
+            </template>
+          </el-input>
+        </el-form-item>
         <el-form-item label="状态">
           <el-select v-model="statusFilter" clearable placeholder="全部" style="width:150px;" @change="load">
             <el-option value="pending_approval" label="待审批" />
@@ -160,6 +174,7 @@ api.interceptors.response.use(r => r.data, e => { ElMessage.error(e?.response?.d
 const refunds = ref([]);
 const loading = ref(false);
 const statusFilter = ref("");
+const keyword = ref("");
 
 const stats = computed(() => {
   const s = { total: 0, pending: 0, approved: 0, executed: 0, rejected: 0, total_amount: 0 };
@@ -190,6 +205,7 @@ async function load() {
   try {
     const params = {};
     if (statusFilter.value) params.status = statusFilter.value;
+    if (keyword.value.trim()) params.keyword = keyword.value.trim();
     const r = await api.get("/refunds", { params });
     refunds.value = r.items || [];
   } finally { loading.value = false; }

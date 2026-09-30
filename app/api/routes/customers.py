@@ -1,7 +1,6 @@
 """客户 + 订单 API。"""
 from __future__ import annotations
 import os
-from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
@@ -23,13 +22,27 @@ def _to_resp(c: Customer) -> CustomerResponse:
 
 
 @router.get("", response_model=list[CustomerResponse])
-async def list_customers(vip_level: Optional[str] = None, risk_level: Optional[str] = None):
+async def list_customers(
+    vip_level: Optional[str] = None,
+    risk_level: Optional[str] = None,
+    keyword: Optional[str] = None,
+):
+    from sqlalchemy import or_
     with session_scope() as s:
         q = select(Customer).order_by(Customer.customer_id)
         if vip_level:
             q = q.where(Customer.vip_level == vip_level)
         if risk_level:
             q = q.where(Customer.risk_level == risk_level)
+        if keyword:
+            kw = f"%{keyword.strip()}%"
+            q = q.where(or_(
+                Customer.customer_id.like(kw),
+                Customer.name.like(kw),
+                Customer.phone.like(kw),
+                Customer.email.like(kw),
+                Customer.address.like(kw),
+            ))
         rows = s.execute(q).scalars().all()
         return [_to_resp(c) for c in rows]
 
@@ -102,7 +115,7 @@ async def get_customer_risk(customer_id: str):
 # ============================================================
 # 批量导入
 # ============================================================
-from fastapi import File, Form, UploadFile
+from fastapi import File, UploadFile
 from typing import Dict as _Dict
 from pydantic import BaseModel as _BaseModel
 

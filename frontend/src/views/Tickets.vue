@@ -18,17 +18,32 @@
 
     <!-- ============ 筛选 ============ -->
     <el-card shadow="never" style="margin-bottom:16px;">
-      <el-radio-group v-model="statusFilter" @change="load">
-        <el-radio-button value="">全部</el-radio-button>
-        <el-radio-button value="assigned">待接单</el-radio-button>
-        <el-radio-button value="accepted">已接单</el-radio-button>
-        <el-radio-button value="in_progress">处理中</el-radio-button>
-        <el-radio-button value="resolved">已解决</el-radio-button>
-        <el-radio-button value="closed">已关闭</el-radio-button>
-      </el-radio-group>
-      <el-checkbox v-model="incompleteOnly" style="margin-left:20px;" @change="load">
-        只看信息待补
-      </el-checkbox>
+      <div style="display:flex; flex-wrap:wrap; gap:12px; align-items:center;">
+        <el-input
+          v-model="keyword"
+          placeholder="搜索：工单号 / 设备 / 故障码 / 工程师 / 联系人"
+          clearable
+          style="width:320px;"
+          @keyup.enter="load"
+          @clear="load"
+        >
+          <template #prefix>
+            <el-icon><Search /></el-icon>
+          </template>
+        </el-input>
+        <el-radio-group v-model="statusFilter" @change="load">
+          <el-radio-button value="">全部</el-radio-button>
+          <el-radio-button value="assigned">待接单</el-radio-button>
+          <el-radio-button value="accepted">已接单</el-radio-button>
+          <el-radio-button value="in_progress">处理中</el-radio-button>
+          <el-radio-button value="resolved">已解决</el-radio-button>
+          <el-radio-button value="closed">已关闭</el-radio-button>
+        </el-radio-group>
+        <el-checkbox v-model="incompleteOnly" @change="load">
+          只看信息待补
+        </el-checkbox>
+        <el-button type="primary" :icon="Search" @click="load">查询</el-button>
+      </div>
     </el-card>
 
     <!-- ============ 表格 ============ -->
@@ -75,25 +90,7 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="SLA" width="140">
-          <template #default="{ row }">
-            <div v-if="row.sla_status" class="sla-cell" :class="row.sla_status">
-              <span class="sla-icon">{{ slaIcon(row.sla_status) }}</span>
-              <span class="sla-text">{{ slaText(row) }}</span>
-            </div>
-            <span v-else style="color:#9ca3af;">-</span>
-          </template>
-        </el-table-column>
 
-        <el-table-column label="SLA" width="140">
-          <template #default="{ row }">
-            <div v-if="row.sla_status" class="sla-cell" :class="row.sla_status">
-              <span class="sla-icon">{{ slaIcon(row.sla_status) }}</span>
-              <span class="sla-text">{{ slaText(row) }}</span>
-            </div>
-            <span v-else style="color:#9ca3af;">-</span>
-          </template>
-        </el-table-column>
 
         <el-table-column prop="assigned_to" label="工程师" width="100" />
         <el-table-column label="派单次数" width="90" align="center">
@@ -290,7 +287,7 @@
 import { ref, computed, onMounted } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import {
-  Refresh, View, Loading, Check, Close, VideoPlay, CircleCheck, Lock, Edit,
+  Refresh, View, Loading, Check, Close, VideoPlay, CircleCheck, Lock, Edit, Search,
 } from "@element-plus/icons-vue";
 import api from "../api";
 
@@ -298,6 +295,7 @@ const tickets = ref([]);
 const loading = ref(false);
 const statusFilter = ref("");
 const incompleteOnly = ref(false);
+const keyword = ref("");
 
 const stats = computed(() => {
   const s = { total: 0, assigned: 0, accepted: 0, in_progress: 0, resolved: 0, closed: 0, incomplete: 0 };
@@ -349,6 +347,7 @@ async function load() {
     const params = {};
     if (statusFilter.value) params.status = statusFilter.value;
     if (incompleteOnly.value) params.incomplete_only = true;
+    if (keyword.value.trim()) params.keyword = keyword.value.trim();
     const r = await api.listTickets(params);
     tickets.value = r.items || [];
   } finally {
@@ -511,21 +510,13 @@ onMounted(load);
 .sla-cell.overdue { background: #fef2f2; color: #dc2626; }
 .sla-icon { font-size: 14px; }
 
-.sla-cell {
-  display: flex; align-items: center; gap: 4px;
-  padding: 2px 6px; border-radius: 4px;
-  font-size: 12px; font-weight: 500;
-}
+
 .sla-cell.normal { background: #f0fdf4; color: #16a34a; }
 .sla-cell.warning { background: #fffbeb; color: #d97706; }
 .sla-cell.overdue { background: #fef2f2; color: #dc2626; }
 .sla-icon { font-size: 14px; }
 
-.sla-cell {
-  display: flex; align-items: center; gap: 4px;
-  padding: 2px 6px; border-radius: 4px;
-  font-size: 12px; font-weight: 500;
-}
+
 .sla-cell.normal { background: #f0fdf4; color: #16a34a; }
 .sla-cell.warning { background: #fffbeb; color: #d97706; }
 .sla-cell.overdue { background: #fef2f2; color: #dc2626; }
