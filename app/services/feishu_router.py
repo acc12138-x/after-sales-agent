@@ -23,6 +23,35 @@ from app.integrations.feishu_client import (
 )
 
 CONFIG_PATH = Path(__file__).parent.parent / "config" / "feishu_routes.yaml"
+ENV_PATH = Path(__file__).resolve().parents[2] / ".env"
+
+
+def _env_webhooks() -> Dict[str, str]:
+    """从 .env 读取 FEISHU_WEBHOOK_<频道名大写>。
+
+    ⚠️ webhook 是敏感信息（拿到就能往群里发消息），**不要写进仓库**。
+    约定：webhook 放 .env（已被 .gitignore 排除），YAML 里的 webhook 仅作兜底。
+        engineer_group   -> FEISHU_WEBHOOK_ENGINEER_GROUP
+        supervisor_group -> FEISHU_WEBHOOK_SUPERVISOR_GROUP
+        sla_group        -> FEISHU_WEBHOOK_SLA_GROUP
+        customer_channel -> FEISHU_WEBHOOK_CUSTOMER_CHANNEL
+    """
+    out: Dict[str, str] = {}
+    if not ENV_PATH.exists():
+        return out
+    try:
+        for line in ENV_PATH.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            k = k.strip().upper()
+            v = v.strip().strip('"').strip("'")
+            if k.startswith("FEISHU_WEBHOOK_") and v:
+                out[k[len("FEISHU_WEBHOOK_"):].lower()] = v
+    except Exception as e:
+        print(f"[FEISHU] 读取 .env webhook 失败: {e}")
+    return out
 
 
 # ============================================================
@@ -79,9 +108,27 @@ EVENT_TO_GROUPS = {
 
 def _load_config() -> dict:
     if not CONFIG_PATH.exists():
-        return {"channels": {}, "routes": {}}
-    with open(CONFIG_PATH, encoding="utf-8") as f:
-        return yaml.safe_load(f) or {"channels": {}, "routes": {}}
+        cfg = {"channels": {}, "routes": {}}
+    else:
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {"channels": {}, "routes": {}}
+
+    # .env 里的 webhook 覆盖 YAML —— 让密钥不落进仓库
+    env_hooks = _env_webhooks()
+    for name, ch in (cfg.get("channels") or {}).items():
+        v = env_hooks.get(name.lower())
+        if v:
+            ch["webhook"] = v
+            ch["webhook_source"] = ".env"
+    return cfg
+
+
+def _groups_for_event(event: str, cfg: dict) -> List[str]:
+    """事件要广播到哪些群：优先用 YAML 的 routes，回退到内置映射。"""
+    routes = cfg.get("routes") or {}
+    if event in routes:
+        return list(routes[event] or [])
+    return list(EVENT_TO_GROUPS.get(event, []))
 
 
 def _record_notification(channel: str, target: str, event: str,
@@ -158,7 +205,7 @@ def dispatch(event: str, title: str, content: str,
             })
             continue
 
-        # 智能发送：优先 chat_id（飞书限制 open_id 主动发单聊）
+        # 智能发送：优先私聊 open_id，失败才回退 chat_id（群）
         cid = u.get("chat_id", "") or ""
         ok, err = send_smart(oid, title, content, chat_id=cid)
         _record_notification(
@@ -195,7 +242,7 @@ def dispatch(event: str, title: str, content: str,
     # ============================================================
     # 2. 广播到群
     # ============================================================
-    group_names = EVENT_TO_GROUPS.get(event, [])
+    group_names = _groups_for_event(event, cfg)
     for gname in group_names:
         ch = channels.get(gname, {})
         webhook = ch.get("webhook", "")
@@ -221,6 +268,41 @@ def dispatch(event: str, title: str, content: str,
             "sent": ok, "error": err,
         })
 
+    return result
+
+
+def broadcast(event: str, title: str, content: str,
+              groups: List[str] = None) -> Dict:
+    """只做【群广播】，不私聊。
+
+    用于「私聊本人 + 同步通知群」的双发场景（如工单派单）。
+    群 webhook 从 .env 读取（FEISHU_WEBHOOK_<频道名大写>），未配置的群会被跳过。
+    """
+    cfg = _load_config()
+    channels = cfg.get("channels", {})
+    names = groups if groups is not None else _groups_for_event(event, cfg)
+
+    result: Dict = {"event": event, "group": []}
+    for gname in names:
+        ch = channels.get(gname, {})
+        webhook = ch.get("webhook", "")
+        at_all = ch.get("at_all", False)
+        if not webhook:
+            result["group"].append({
+                "channel": gname, "label": ch.get("label", gname),
+                "sent": False, "error": "webhook 未配置",
+            })
+            continue
+        ok, err = send_webhook(webhook, f"{title}\n{content}", at_all)
+        _record_notification(
+            channel=f"feishu_group:{gname}", target=gname, event=event,
+            title=title, content=content,
+            status="sent" if ok else "failed", error=err,
+        )
+        result["group"].append({
+            "channel": gname, "label": ch.get("label", gname),
+            "sent": ok, "error": err,
+        })
     return result
 
 

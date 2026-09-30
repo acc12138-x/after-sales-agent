@@ -302,6 +302,64 @@ async def check_permission(user_id: int, req: PermissionCheck):
 
 
 # ============================================================
+# 飞书 open_id 反查
+# ============================================================
+class ResolveOpenIdRequest(BaseModel):
+    mobile: str = ""
+    email: str = ""
+
+
+@router.post("/{user_id}/resolve-open-id")
+async def resolve_open_id(user_id: int, req: ResolveOpenIdRequest):
+    """用手机号 / 邮箱反查【本应用】的 open_id 并写入该人员。
+
+    飞书 open_id 按应用隔离：必须是「发消息那个应用」查出来的才有效，
+    否则发送时会报 `99992361 open_id cross app`。
+    """
+    from app.integrations.feishu_client import batch_get_user_ids
+
+    with session_scope() as s:
+        u = s.get(User, user_id)
+        if u is None:
+            raise HTTPException(status_code=404, detail="人员不存在")
+        mobile = (req.mobile or u.phone or "").strip()
+        email = (req.email or u.email or "").strip()
+
+    if not mobile and not email:
+        raise HTTPException(
+            status_code=400,
+            detail="该人员没有手机号/邮箱，请先在表单里补充（或直接手填 open_id）",
+        )
+
+    res = batch_get_user_ids(
+        mobiles=[mobile] if mobile else None,
+        emails=[email] if email else None,
+    )
+    if res.get("error"):
+        raise HTTPException(status_code=502,
+                            detail=f"飞书接口调用失败：{res['error']}")
+
+    found = res.get("open_ids") or {}
+    oid = found.get(mobile) or found.get(email) or ""
+    if not oid:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "未查到 open_id。常见原因：该手机号/邮箱对应的用户在飞书里不存在，"
+                "或不在本应用的「可用范围」内。"
+                "请到飞书开放平台把该用户加入应用可用范围后重试。"
+            ),
+        )
+
+    with session_scope() as s:
+        u = s.get(User, user_id)
+        u.feishu_open_id = oid
+        name = u.name
+
+    return {"user_id": user_id, "name": name, "feishu_open_id": oid}
+
+
+# ============================================================
 # 重建负载
 # ============================================================
 @router.post("/rebuild-load")

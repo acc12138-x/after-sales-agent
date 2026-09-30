@@ -33,6 +33,18 @@ class ResolveRequest(BaseModel):
 ACTIVE_STATUSES = {"pending", "assigned", "accepted", "in_progress"}
 
 
+def _broadcast_group(event: str, title: str, content: str) -> None:
+    """私聊之外，把事件同步广播到配置好的群（webhook 在 .env 里配）。
+
+    失败不影响主流程。
+    """
+    try:
+        from app.services.feishu_router import broadcast
+        broadcast(event=event, title=title, content=content)
+    except Exception as e:
+        print(f"[NOTIFY] group broadcast failed: {e}")
+
+
 def _sync_engineer_load(s, ticket, old_status: str, new_status: str):
     """工单状态变更时同步工程师 current_load。
 
@@ -159,6 +171,12 @@ def do_create_ticket(
         event="ticket_assigned",
         title=f"新工单 {tid}",
         content=f"设备 {device_model or '待补充'} 故障码 {error_code or '待补充'}，请及时处理。",
+    )
+    _broadcast_group(
+        event="ticket_assigned",
+        title=f"新工单 {tid} → {engineer_name}",
+        content=(f"设备 {device_model or '待补充'}｜"
+                 f"故障码 {error_code or '待补充'}｜已派给 {engineer_name}。"),
     )
     audit_log(
         action="ticket.created",
@@ -333,6 +351,9 @@ async def accept_ticket(ticket_id: str):
     r = _transition(ticket_id, "accepted")
     notify(target=r["assigned_to"], event="ticket_accepted",
            title=f"工单 {ticket_id} 已接单")
+    _broadcast_group(event="ticket_accepted",
+                     title=f"工单 {ticket_id} 已接单",
+                     content=f"工程师：{r.get('assigned_to') or '-'}")
     return r
 
 
@@ -369,9 +390,21 @@ async def reject_ticket(ticket_id: str, req: RejectRequest):
 
     notify(target=old_engineer, event="ticket_rejected",
            title=f"工单 {ticket_id} 已拒单", content=req.reason or "无原因")
+    re_msg = (f"，已重派给 {result['new_engineer']}" if result.get("new_engineer")
+              else "，暂无可用工程师重派")
+    _broadcast_group(
+        event="ticket_rejected",
+        title=f"工单 {ticket_id} 已拒单",
+        content=f"{old_engineer} 拒单{re_msg}。原因：{req.reason or '无'}",
+    )
     if result.get("new_engineer"):
         notify(target=result["new_engineer"], event="ticket_assigned",
                title=f"新工单 {ticket_id}", content="请及时处理")
+        _broadcast_group(
+            event="ticket_assigned",
+            title=f"工单 {ticket_id} 已重派 → {result['new_engineer']}",
+            content=f"原工程师 {old_engineer} 拒单，已改派给 {result['new_engineer']}。",
+        )
     audit_log(action="ticket.rejected", actor="api", target_type="ticket",
               target_id=ticket_id,
               detail={"reason": req.reason, "old": old_engineer})

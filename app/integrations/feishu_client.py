@@ -173,22 +173,86 @@ def send_to_chat(chat_id: str, text: str) -> tuple[bool, str]:
 
 
 def send_smart(target: str, title: str, content: str, chat_id: str = "") -> tuple[bool, str]:
-    """智能发送：优先 chat_id（飞书限制 open_id 主动发单聊），其次 open_id。"""
-    text = f"【{title}】\n{content}"
+    """智能发送：**优先私聊 open_id**，失败才回退到 chat_id（群）。
 
-    # 1. 显式 chat_id 优先
-    if chat_id and chat_id.startswith("oc_"):
-        ok, err = send_to_chat(chat_id, text)
+    ⚠️ 早期实现是「chat_id 优先」（注释说"飞书限制 open_id 主动发单聊"），
+    但实测 open_id 私聊完全可用。chat_id 优先会让**个人通知被静默发到群里**，
+    本人反而收不到（工单派单通知就是这样丢的）。
+    因此改为：只要给了 open_id 就先私聊，群仅作兜底。
+    """
+    text = f"【{title}】\n{content}"
+    has_chat = bool(chat_id) and chat_id.startswith("oc_")
+
+    # 1. target 是 open_id → 优先私聊
+    if target.startswith("ou_"):
+        ok, err = send_private(target, text)
         if ok:
             return True, ""
-        print(f"[FEISHU] chat_id 发送失败({err})，回退 open_id")
+        print(f"[FEISHU] open_id 私聊失败({err})，回退 chat_id")
+        if has_chat:
+            return send_to_chat(chat_id, text)
+        return False, err
 
-    # 2. target 本身是 chat_id
+    # 2. target 是 chat_id → 直接发群
     if target.startswith("oc_"):
         return send_to_chat(target, text)
 
-    # 3. target 是 open_id
-    if target.startswith("ou_"):
-        return send_private(target, text)
+    # 3. target 不是飞书 ID，但有显式 chat_id → 发群
+    if has_chat:
+        return send_to_chat(chat_id, text)
 
+    # 4. 兜底：交给 send_private 报格式错误
     return send_private(target, text)
+
+
+# ============================================================
+# 按手机号 / 邮箱反查【本应用】的 open_id
+# ============================================================
+def batch_get_user_ids(mobiles=None, emails=None) -> dict:
+    """用手机号 / 邮箱反查 open_id。
+
+    ⚠️ 飞书 open_id 是 **按应用隔离** 的：只有用「发消息那个应用」查出来的
+    open_id 才能用来发消息，用别的应用（如 OpenClaw 的 app）拿到的一律
+    报 `99992361 open_id cross app`。
+
+    返回：
+        {"open_ids": {"13800138000": "ou_xxx", ...}, "raw": {...}}
+        失败时 {"open_ids": {}, "error": "..."}
+    """
+    token = _get_tenant_token()
+    if not token:
+        return {"open_ids": {}, "error": "App ID/Secret 未配置或获取 token 失败"}
+
+    payload = {}
+    if mobiles:
+        payload["mobiles"] = list(mobiles)
+    if emails:
+        payload["emails"] = list(emails)
+    if not payload:
+        return {"open_ids": {}, "error": "mobiles / emails 至少提供一个"}
+
+    try:
+        r = httpx.post(
+            "https://open.feishu.cn/open-apis/contact/v3/users/batch_get_id"
+            "?user_id_type=open_id",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=15, trust_env=False,
+        )
+        d = r.json()
+        if d.get("code") != 0:
+            return {"open_ids": {},
+                    "error": f"code={d.get('code')} msg={d.get('msg', '')}"}
+
+        out = {}
+        for item in (d.get("data") or {}).get("user_list") or []:
+            oid = item.get("user_id") or item.get("open_id") or ""
+            key = item.get("mobile") or item.get("email") or ""
+            if key and oid:
+                out[key] = oid
+        return {"open_ids": out, "raw": d}
+    except Exception as e:
+        return {"open_ids": {}, "error": str(e)[:200]}

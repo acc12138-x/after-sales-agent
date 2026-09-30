@@ -15,6 +15,28 @@ from app.services.feishu_router import (
 router = APIRouter(prefix="/feishu", tags=["feishu"])
 
 CONFIG_PATH = Path(__file__).parents[2] / "config" / "feishu_routes.yaml"
+ENV_PATH = Path(__file__).resolve().parents[3] / ".env"
+
+
+def _write_env_webhook(channel: str, webhook: str) -> None:
+    """把群 webhook 写进 .env（不进仓库）。
+
+    ⚠️ webhook 是密钥，绝不要写进 feishu_routes.yaml —— 那个文件是被 git 跟踪的。
+    """
+    key = "FEISHU_WEBHOOK_" + channel.upper()
+    lines = ENV_PATH.read_text(encoding="utf-8").splitlines() if ENV_PATH.exists() else []
+    out, done = [], False
+    for line in lines:
+        s = line.strip()
+        if s and not s.startswith("#") and "=" in s and \
+                s.split("=", 1)[0].strip().upper() == key:
+            out.append(f"{key}={webhook}")
+            done = True
+        else:
+            out.append(line)
+    if not done:
+        out += ["", "# ===== 飞书群 webhook（敏感，勿提交）=====", f"{key}={webhook}"]
+    ENV_PATH.write_text("\n".join(out) + "\n", encoding="utf-8", newline="\n")
 
 
 # ============================================================
@@ -55,22 +77,25 @@ async def status():
 
 @router.put("/webhook")
 async def update_webhook(req: WebhookUpdate, user: dict = Depends(get_current_user)):
-    """更新群 webhook。"""
-    if not Path(CONFIG_PATH).exists():
-        raise HTTPException(status_code=500, detail="config 文件不存在")
+    """更新群 webhook（写进 .env，避免密钥进仓库）。"""
+    if req.webhook:
+        try:
+            _write_env_webhook(req.channel, req.webhook.strip())
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"写入 .env 失败：{e}")
 
-    with open(CONFIG_PATH, encoding="utf-8") as f:
-        cfg = yaml.safe_load(f) or {}
+    # 非敏感的 label / at_all 仍留在 YAML；YAML 里的 webhook 一律清空
+    if Path(CONFIG_PATH).exists():
+        with open(CONFIG_PATH, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        channels = cfg.setdefault("channels", {})
+        ch = channels.setdefault(req.channel, {"label": req.channel, "at_all": False})
+        ch["webhook"] = ""
+        ch["at_all"] = req.at_all
+        with open(CONFIG_PATH, "w", encoding="utf-8", newline="\n") as f:
+            yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
 
-    channels = cfg.setdefault("channels", {})
-    ch = channels.setdefault(req.channel, {"label": req.channel, "at_all": False})
-    ch["webhook"] = req.webhook or ch.get("webhook", "")
-    ch["at_all"] = req.at_all
-
-    with open(CONFIG_PATH, "w", encoding="utf-8", newline="\n") as f:
-        yaml.safe_dump(cfg, f, allow_unicode=True, sort_keys=False)
-
-    return {"status": "ok", "channel": req.channel}
+    return {"status": "ok", "channel": req.channel, "webhook_saved_to": ".env"}
 
 
 # ============================================================

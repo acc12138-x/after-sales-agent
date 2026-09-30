@@ -1,12 +1,21 @@
 # 飞书群路由配置
-# 每个群配 webhook URL，事件按路由表分发
-# webhook 为空时只记通知表，不发飞书（开发模式）
+# 「事件 → 群」的映射写在这里；群的 webhook 请放 .env，不要写进本文件。
+#
+# ⚠️ webhook 是密钥（拿到就能往对应群里发消息），而本文件被 git 跟踪，
+#    所以 webhook 一律留空，改用环境变量（.env 已被 .gitignore 排除）：
+#        engineer_group   -> FEISHU_WEBHOOK_ENGINEER_GROUP
+#        supervisor_group -> FEISHU_WEBHOOK_SUPERVISOR_GROUP
+#        sla_group        -> FEISHU_WEBHOOK_SLA_GROUP
+#        customer_channel -> FEISHU_WEBHOOK_CUSTOMER_CHANNEL
+#    （后台「飞书配置」页面保存时也会自动写进 .env）
+#
+# webhook 未配置的群：只记通知表，不发飞书。
 
 channels:
   # 工程师群
   engineer_group:
     label: "售后工程师群"
-    webhook: ""           # 填真实 webhook 后生效
+    webhook: ""           # ← 留空；真实值走 FEISHU_WEBHOOK_ENGINEER_GROUP
     at_all: false
 
   # 主管群
