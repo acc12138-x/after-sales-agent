@@ -115,18 +115,9 @@
 <script setup>
 import { ref, computed, onMounted } from "vue";
 import { ElMessage } from "element-plus";
-import axios from "axios";
-
-const api = axios.create({ baseURL: "/api" });
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem("auth_token");
-  if (token) config.headers["Authorization"] = "Bearer " + token;
-  return config;
-});
-api.interceptors.response.use(r => r.data, e => {
-  ElMessage.error(e?.response?.data?.detail || e.message);
-  return Promise.reject(e);
-});
+// 统一用共享客户端：它自带 Authorization 请求头与统一错误提示，
+// 不必在本页重复实现一遍拦截器。
+import api from "../api";
 
 const status = ref({ app_id: "", app_secret_set: false, token_ok: false });
 const config = ref({});

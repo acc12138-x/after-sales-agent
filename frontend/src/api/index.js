@@ -36,6 +36,15 @@ http.interceptors.response.use(
 );
 
 export default {
+  // ---------- 通用请求 ----------
+  // 供页面直接调用。务必用这一个，不要在各页面里 axios.create() ——
+  // 自建实例不会带上 Authorization 头，后端会返回 401「未登录」。
+  get: (url, config) => http.get(url, config),
+  post: (url, data, config) => http.post(url, data, config),
+  put: (url, data, config) => http.put(url, data, config),
+  patch: (url, data, config) => http.patch(url, data, config),
+  delete: (url, config) => http.delete(url, config),
+
   login: (data) => http.post("/auth/login", data),
 
   // ---------- 飞书 ----------

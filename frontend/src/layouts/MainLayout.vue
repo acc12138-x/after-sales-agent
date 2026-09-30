@@ -47,7 +47,9 @@
 
     <!-- 修改自己的密码（任何账号都有） -->
     <el-dialog v-model="pwdDialog" title="修改密码" width="420px" append-to-body>
-      <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-width="86px">
+      <!-- label-width 要放得下最长的标签「确认新密码」（5 个汉字），
+           否则会被折成「确认新密 / 码」，与其它行错位 -->
+      <el-form ref="pwdFormRef" :model="pwdForm" :rules="pwdRules" label-width="104px">
         <el-form-item label="原密码" prop="old_password">
           <el-input v-model="pwdForm.old_password" type="password" show-password
                     autocomplete="current-password" placeholder="当前使用的密码" />

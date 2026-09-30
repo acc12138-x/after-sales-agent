@@ -292,10 +292,9 @@
 import { ref, reactive, computed, onMounted } from "vue";
 import { ElMessage } from "element-plus";
 import { Loading, UploadFilled, Search } from "@element-plus/icons-vue";
-import axios from "axios";
-
-const api = axios.create({ baseURL: "/api" });
-api.interceptors.response.use(r => r.data, e => { ElMessage.error(e?.response?.data?.detail || e.message); return Promise.reject(e); });
+// 统一用共享客户端：它自带 Authorization 请求头与统一错误提示。
+// 千万不要在本页 axios.create() —— 自建实例不带 token，会得到 401「未登录」。
+import api from "../api";
 
 const customers = ref([]);
 const loading = ref(false);
