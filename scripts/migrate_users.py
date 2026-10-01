@@ -1,8 +1,12 @@
 # -*- coding: utf-8 -*-
 """迁移 engineers 表 -> users 表"""
 import os, sys
-os.chdir(r"I:\XMWJ\PYxm\Enterprise After-Sales Knowledge Base Agent Platform")
-sys.path.insert(0, os.getcwd())
+from pathlib import Path
+
+# 项目根从脚本自身位置推导，不要写死本机绝对路径
+ROOT = Path(__file__).resolve().parents[1]
+os.chdir(ROOT)
+sys.path.insert(0, str(ROOT))
 sys.stdout.reconfigure(encoding="utf-8")
 
 from sqlalchemy import select

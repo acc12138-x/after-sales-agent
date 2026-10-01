@@ -27,6 +27,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -328,7 +329,44 @@ def check_uncommitted() -> None:
 
 
 # ============================================================
-# 7. 单元测试
+# 7. 硬编码本机绝对路径
+# ============================================================
+# 由来：scripts/seed_*.py 曾经写死 os.chdir(r"I:\XMWJ\...")，
+# 本机跑得好好的，一进 Docker / 服务器就 FileNotFoundError。
+# 正确写法：ROOT = Path(__file__).resolve().parents[1]
+ABS_PATH_RE = re.compile(r"""(["'])(?:[A-Za-z]:[\\/]|/home/|/Users/|/root/|/opt/apps/)""")
+
+
+def check_hardcoded_paths() -> None:
+    head("7. 硬编码本机绝对路径（会让脚本在 Docker / 服务器上失效）")
+    hits = []
+    for base in ("app", "scripts", "tests"):
+        d = ROOT / base
+        if not d.is_dir():
+            continue
+        for p in sorted(d.rglob("*.py")):
+            if "__pycache__" in p.parts:
+                continue
+            try:
+                lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+            except Exception:
+                continue
+            for i, line in enumerate(lines, 1):
+                s = line.strip()
+                if s.startswith("#"):
+                    continue
+                if ABS_PATH_RE.search(line):
+                    hits.append((p.relative_to(ROOT).as_posix(), i, s[:90]))
+
+    if hits:
+        for f, i, s in hits:
+            fail(f"{f}:{i} 写死了绝对路径", s)
+    else:
+        print(f"  {OK} app/ scripts/ tests/ 下没有硬编码的绝对路径")
+
+
+# ============================================================
+# 8. 单元测试
 # ============================================================
 def run_tests() -> None:
     head("7. 单元测试（意图识别）")
@@ -366,6 +404,7 @@ def main() -> int:
     check_configs()
     check_imports()
     check_uncommitted()
+    check_hardcoded_paths()
     if args.tests:
         run_tests()
 

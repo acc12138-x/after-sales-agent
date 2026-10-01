@@ -1,7 +1,12 @@
 import os, sys
 from datetime import datetime, timedelta
-os.chdir(r"I:\\XMWJ\\PYxm\\Enterprise After-Sales Knowledge Base Agent Platform")
-sys.path.insert(0, os.getcwd())
+from pathlib import Path
+
+# 项目根从脚本自身位置推导。
+# 不要写死本机绝对路径 —— 那样在 Docker / 服务器上会 FileNotFoundError。
+ROOT = Path(__file__).resolve().parents[1]
+os.chdir(ROOT)
+sys.path.insert(0, str(ROOT))
 
 from sqlalchemy import select
 from app.db.session import session_scope, init_db

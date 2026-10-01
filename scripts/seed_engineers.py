@@ -2,9 +2,12 @@
 import json
 import os
 import sys
+from pathlib import Path
 
-os.chdir(r"I:\XMWJ\PYxm\Enterprise After-Sales Knowledge Base Agent Platform")
-sys.path.insert(0, os.getcwd())
+# 项目根从脚本自身位置推导，不要写死本机绝对路径
+ROOT = Path(__file__).resolve().parents[1]
+os.chdir(ROOT)
+sys.path.insert(0, str(ROOT))
 
 from sqlalchemy import select
 from app.db.session import init_db, session_scope

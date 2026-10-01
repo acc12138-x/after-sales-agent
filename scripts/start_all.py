@@ -1,7 +1,7 @@
 """一键启动：FastAPI + frpc（Streamlit 已移除）。
 
 用法:
-    python scripts\start_all.py
+    python scripts/start_all.py
 
 Ctrl+C 一次停止全部。
 """
@@ -13,8 +13,10 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-VENV_PY = Path(r"I:\XMWJ\PYxm\venvs\easkb-agent\Scripts\python.exe")
-FRP_DIR = Path(r"I:\XMWJ\PYxm\frp")
+# 本机开发默认值；可用环境变量覆盖，避免把个人路径写死进仓库
+VENV_PY = Path(os.environ.get("VENV_PY")
+               or (ROOT.parent / "venvs" / "easkb-agent" / "Scripts" / "python.exe"))
+FRP_DIR = Path(os.environ.get("FRP_DIR") or (ROOT.parent / "frp"))
 
 LOG_DIR = ROOT / "logs"
 LOG_DIR.mkdir(exist_ok=True)
