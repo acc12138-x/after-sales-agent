@@ -28,9 +28,16 @@ body { font-family: var(--app-font); }
   font-size: 22px;
   font-weight: 700;
   margin-bottom: 20px;
-  background: linear-gradient(135deg, #1f2937 0%, #4f46e5 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
+  /* 用纯色，不要用渐变文字。
+     原来这里写的是：
+         background: linear-gradient(...);
+         -webkit-background-clip: text;
+         -webkit-text-fill-color: transparent;
+     在 Chromium 里 background-clip:text 会把标题中的 emoji 也一起
+     裁进渐变层，emoji 于是失去自身颜色、看起来是深色/黑色。
+     标题里几乎每个都带 emoji（📊 运营监控看板 / 💰 退款管理 …），
+     这是「有些 emoji 是黑的」的第二个原因。 */
+  color: #1f2937;
 }
 
 .card-panel {
