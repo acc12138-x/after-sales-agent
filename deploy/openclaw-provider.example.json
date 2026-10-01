@@ -1,0 +1,54 @@
+{
+  "_comment": [
+    "OpenClaw 网关侧的 Provider 配置示例（把本项目当成一个 OpenAI 兼容的模型接进去）。",
+    "",
+    "合并进 ~/.openclaw/openclaw.json 即可（该文件是 JSON，不支持注释，",
+    "所以这个 _comment 字段合并前请删掉）。改完重启网关：",
+    "    systemctl --user restart openclaw-gateway",
+    "",
+    "⚠️ 最容易踩的坑：baseUrl 的端口必须与 docker-compose.prod.yml 里",
+    "   发布到宿主机的端口一致（默认 127.0.0.1:18001）。写成 18000 之类的",
+    "   会让网关连不上后端，表现为「飞书发消息没任何反应」。",
+    "   自检命令：curl -s http://127.0.0.1:18001/v1/models -H 'Authorization: Bearer local-rag-key'",
+    "",
+    "⚠️ apiKey 必须与后端 .env.production 的 OPENCLAW_API_KEY 一致，",
+    "   否则后端会返回 401（除非把 OPENCLAW_REQUIRE_KEY 设为 false）。"
+  ],
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "local-rag": {
+        "baseUrl": "http://127.0.0.1:18001/v1",
+        "apiKey": "local-rag-key",
+        "api": "openai-completions",
+        "timeoutSeconds": 120,
+        "models": [
+          {
+            "id": "local-rag",
+            "name": "Local RAG Assistant",
+            "reasoning": false,
+            "input": ["text"],
+            "cost": {
+              "input": 0,
+              "output": 0,
+              "cacheRead": 0,
+              "cacheWrite": 0
+            },
+            "contextWindow": 128000,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "local-rag/local-rag"
+      },
+      "models": {
+        "local-rag/local-rag": {}
+      }
+    }
+  }
+}

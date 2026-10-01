@@ -330,8 +330,110 @@ docker system prune -af --volumes   # ⚠️ --volumes 会删未使用的卷，�
 
 1. 买服务器（**能上 4GB 就上 4GB**，2GB 是能用但没余量）
 2. 按 §3 做初始化（**swap 和镜像加速别跳过**）
-3. 按 §4 建目录、按 §5 起 Caddy（先用一个域名验证 HTTPS 通）
-4. 按 §6 部署本项目（先用 `127.0.0.1:18001/health` 验证后端）
-5. 把前端 `dist` 传上去，用 `agent.你的域名` 验证前端 + API
+3. **先看 §13**：服务器上已经有 nginx 的话，**根本不用装 Caddy**，直接复用
+4. 按 §4 建目录、按 §6 部署本项目（先用 `127.0.0.1:18001/health` 验证后端）
+5. 按 §13 配 nginx + 申请证书，用 `agent.你的域名` 验证前端 + API
 6. 再按 §9 接入另一个项目、按 §8 接入简历机器人
 7. 每加一个项目，跑一次 `docker stats` 看内存，留够余量
+
+---
+
+## 13. 服务器上已经有 nginx 怎么办（**推荐路径**）
+
+很多云服务器（阿里云、腾讯云镜像）**默认就装了宿主机 nginx**，80/443 被它占着。
+这时候**不要**再装 Caddy —— 一层反代就够了，多一层多一个故障点。
+
+### 先确认 80/443 被谁占着
+
+```bash
+sudo ss -tulpn | grep -E ':(80|443)\b'
+systemctl is-active nginx
+docker ps --format '{{.Names}}' | grep -i nginx    # 有输出说明 nginx 在容器里
+```
+
+- 宿主机 nginx（`systemctl is-active nginx` 返回 `active`）→ **走本节**
+- 容器里的 nginx → 把我们的容器接进它所在的 docker 网络，用容器名反代
+- 都没装 → 走 §5 的 Caddy 方案
+
+### 步骤
+
+**① 确认 nginx.conf 有没有 include conf.d**
+
+```bash
+grep -n 'include' /etc/nginx/nginx.conf
+```
+
+- 有 `include /etc/nginx/conf.d/*.conf;` → 直接加文件，**不动主配置**
+- 没有（阿里云/Anolis 镜像常见）→ 补一行：
+
+```bash
+sudo sed -i 's|include\s\+/etc/nginx/mime\.types;|&\n    include /etc/nginx/conf.d/*.conf;|' /etc/nginx/nginx.conf
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**② 放站点配置**
+
+仓库里 [`deploy/nginx-agent.conf`](../deploy/nginx-agent.conf) 就是现成的模板，
+把所有 `<你的域名>` 替换掉，然后：
+
+```bash
+sudo cp deploy/nginx-agent.conf /etc/nginx/conf.d/agent.conf
+sudo nano /etc/nginx/conf.d/agent.conf      # 替换 <你的域名>
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+**③ 前端产物**
+
+```bash
+# 服务器没装 Node 时，用 Docker 构建（见 deploy/docker-compose.web.yml）
+docker compose -f deploy/docker-compose.web.yml run --rm web-build
+ls -la frontend/dist/            # 应看到 index.html + assets/
+```
+
+**④ 先跑通 HTTP，再上 HTTPS**
+
+别一步到位。先用 `curl -sI http://你的域名` 确认 200，再申请证书。
+
+**⑤ 申请证书**
+
+```bash
+# 方式 A：宿主机装了 certbot
+sudo certbot --nginx -d 你的域名
+
+# 方式 B：仓库里没有 certbot 包（部分发行版确实没有）→ 用 Docker 版
+sudo docker run --rm \
+  -v /etc/letsencrypt:/etc/letsencrypt \
+  -v /var/lib/letsencrypt:/var/lib/letsencrypt \
+  -v /opt/apps/after-sales/frontend/dist:/var/www/html \
+  certbot/certbot certonly --webroot -w /var/www/html \
+  -d 你的域名 --agree-tos --non-interactive -m 你的邮箱
+```
+
+方式 B 不会改你的 nginx 配置，证书落在
+`/etc/letsencrypt/live/你的域名/`，再把 `nginx-agent.conf` 里 443 那段的
+`ssl_certificate` 路径对上即可。
+
+**⑥ 自动续期**（方式 B 必须自己配，方式 A 会自动加）
+
+```bash
+echo '20 3 * * * root docker run --rm -v /etc/letsencrypt:/etc/letsencrypt -v /var/lib/letsencrypt:/var/lib/letsencrypt -v /opt/apps/after-sales/frontend/dist:/var/www/html certbot/certbot renew --webroot -w /var/www/html --quiet && systemctl reload nginx' | sudo tee /etc/cron.d/certbot-renew
+```
+
+---
+
+## 14. 实际部署踩过的坑（都已修复，记录备查）
+
+这些是**真实部署时踩到的**，多数已在代码里修掉；留档是为了以后不再重犯。
+
+| 现象 | 根因 | 处理 |
+|---|---|---|
+| `FileNotFoundError: 'I:\\XMWJ\\...'` | 初始化脚本把开发机的绝对路径写死在 `os.chdir()` | **已修**：改成从 `__file__` 推导；`clone_check.py` 加了硬编码路径检查 |
+| `sqlite3.OperationalError: unable to open database file` | 脚本 `chdir` 到了别处，而 SQLite 用的是相对路径 `sqlite:///./data/app.db` | 确保 CWD 是项目根即可 |
+| `git clone` 报 `Permission denied` | 目标目录属主是 root 且权限 700 | 换到自己的目录，或先 `sudo chown -R $USER` |
+| 容器里连网关报 `Connection refused` | 网关只绑 `127.0.0.1:15568`，而容器里的 `host.docker.internal` 是 docker 网桥 IP | **不影响功能**：方向是「网关 → 我们」，反向探活失败只影响 `/health` 的展示 |
+| 飞书发消息没反应 | 网关 Provider 的 `baseUrl` 端口写成 18000，容器实际发布在 **18001** | 改 `~/.openclaw/openclaw.json` 里的 `models.providers.<名字>.baseUrl` |
+| `certbot: command not found` / `No match for argument` | 发行版仓库里没有 certbot | 用 §13 的 Docker 版 certbot |
+| `systemctl --user` 报 `Failed to connect to bus` | SSH 会话没有 `XDG_RUNTIME_DIR` | `export XDG_RUNTIME_DIR=/run/user/$(id -u)` 后再执行 |
+| 退款/客户资产页显示「未登录」 | 这几个页面自建了 axios 实例，没带 `Authorization` 头 | **已修**：统一改用共享客户端 |
+| `data/` 目录容器内写不进去 | 宿主机目录属主不是容器内的 uid | `sudo chown -R 10001:10001 data logs` |
+

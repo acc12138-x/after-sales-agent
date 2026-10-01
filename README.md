@@ -485,11 +485,24 @@ cp .env.production.example .env.production   # 按需修改
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-多项目共存的完整方案（一个 Caddy 边缘代理按子域名分流、内存预算、swap、排错）见
-**[docs/10-deploy-2g.md](docs/10-deploy-2g.md)**，边缘代理配置在 [`deploy/`](deploy)。
+多项目共存的完整方案（内存预算、swap、排错、**实际部署踩坑记录**）见
+**[docs/10-deploy-2g.md](docs/10-deploy-2g.md)**。
+
+**服务器上已经有 nginx？** 不用再装 Caddy —— 直接复用现有 nginx 最省事（见 docs/10 §13）：
+
+| 文件 | 用途 |
+|---|---|
+| [`deploy/nginx-agent.conf`](deploy/nginx-agent.conf) | 宿主机 nginx 站点模板（HTTPS + `/api` 反代 + SSE 关缓冲），替换域名即可 |
+| [`deploy/docker-compose.web.yml`](deploy/docker-compose.web.yml) | 在服务器上用 Docker 构建前端（服务器无需装 Node） |
+| [`deploy/Caddyfile`](deploy/Caddyfile) + [`deploy/docker-compose.edge.yml`](deploy/docker-compose.edge.yml) | 备选：机器上没有 nginx 时用 Caddy 做边缘代理（自动 HTTPS） |
 
 服务器上查看已运行项目的信息（内存 / 容器 / 端口 / 日志 / 反代速查，以及**加新项目前的容量评估**）见
 **[docs/11-server-inspection.md](docs/11-server-inspection.md)**。
+
+> **部署自检**：克隆仓库或改动 `.gitignore` / 脚本后，先跑
+> `python scripts/clone_check.py` —— 它检查必备文件是否都已入库、
+> 有没有源码被忽略、有没有**硬编码的本机路径**
+> （这类问题会导致「本机能跑、上服务器就炸」，本项目真实踩过一次）。
 
 ---
 

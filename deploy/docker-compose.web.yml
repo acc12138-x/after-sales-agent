@@ -1,0 +1,40 @@
+# ============================================================
+# 前端构建（在服务器上用 Docker 构建，服务器上不需要装 Node）
+#
+# 为什么需要它：
+#   - 2GB 小机器上直接跑 vite build 有被 OOM 的风险，
+#     这个 compose 给 Node 限了堆大小和容器内存
+#   - 有些场景不方便往服务器传文件（scp 认证失败等），
+#     在服务器本地构建就不用传了
+#
+# 用法（在项目根目录）：
+#   docker compose -f deploy/docker-compose.web.yml run --rm web-build
+#
+# 产物会直接落到宿主机的 frontend/dist/，nginx 挂载的就是它，
+# 构建完【不需要】重启 nginx 或后端。
+#
+# 不想用 Docker 也可以在本机构建后上传：
+#   npm run build
+#   scp -r dist/* user@server:/opt/apps/after-sales/frontend/dist/
+# ============================================================
+
+services:
+  web-build:
+    image: node:20-alpine
+    working_dir: /src
+
+    volumes:
+      # 直接挂宿主机的 frontend/，产物就地生成
+      - ../frontend:/src
+
+    environment:
+      # 小内存机器防 OOM；如果构建报 Killed，先确认服务器有 swap
+      NODE_OPTIONS: --max-old-space-size=768
+
+    command: sh -c "npm ci && npm run build"
+
+    mem_limit: 1g
+    memswap_limit: 1500m
+
+    # 构建是一次性任务，不需要重启策略
+    restart: "no"
