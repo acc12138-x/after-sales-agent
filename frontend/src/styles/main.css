@@ -1,14 +1,28 @@
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; margin: 0; }
-body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; }
 
-/* 全局紫蓝主题 */
+/* 全局紫蓝主题 + 字体栈 */
 :root {
   --primary: #4f46e5;
   --primary-light: #7c3aed;
   --bg-soft: #f8fafc;
   --border: #e5e7eb;
+
+  /* ⚠️ 字体栈末尾必须带上 emoji 字体。
+     原先这行是 -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif
+     —— 一个 emoji 字体都没有，于是 Windows 会回退到
+     Segoe UI Symbol（黑白）而不是 Segoe UI Emoji（彩色），
+     emoji 就渲染成单色了（表现：选中时它会跟着 CSS color 变色）。
+     把 emoji 字体追加在中文/西文之后即可：
+     普通文字仍用前面的字体，emoji 字符才会落到这一层。 */
+  --app-font: -apple-system, "PingFang SC", "Microsoft YaHei",
+              "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji",
+              sans-serif;
+  /* 覆盖 Element Plus 的字体变量，让组件内部也走同一套栈 */
+  --el-font-family: var(--app-font);
 }
+
+body { font-family: var(--app-font); }
 
 .page-title {
   font-size: 22px;
