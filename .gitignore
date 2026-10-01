@@ -66,3 +66,9 @@ Thumbs.db
 # ===== 工具二进制（Redis for Windows 等，含大量 .pdb，不入库）=====
 /tools/
 docs/08-interview.md
+
+# ===== 个人求职材料（本地留存，不入库）=====
+# 注意：docs/07-resume.md 目前仍被 git 跟踪，若也要本地留存，
+# 需要额外执行 git rm --cached docs/07-resume.md
+/agent.docx
+/agent.doc
