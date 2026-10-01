@@ -21,7 +21,7 @@
       <el-radio-group v-model="statusFilter">
         <el-radio-button value="">全部</el-radio-button>
         <el-radio-button value="online">🟢 在线</el-radio-button>
-        <el-radio-button value="offline">⚪ 离线</el-radio-button>
+        <el-radio-button value="offline">⚪️ 离线</el-radio-button>
       </el-radio-group>
     </div>
 
@@ -61,7 +61,7 @@
         <el-table-column label="状态" width="100">
           <template #default="{ row }">
             <el-tag :type="row.status === 'online' ? 'success' : 'info'" size="small">
-              {{ row.status === "online" ? "🟢 在线" : "⚪ 离线" }}
+              {{ row.status === "online" ? "🟢 在线" : "⚪️ 离线" }}
             </el-tag>
           </template>
         </el-table-column>
@@ -164,7 +164,7 @@
         <el-form-item label="状态" v-if="isEdit">
           <el-radio-group v-model="form.status">
             <el-radio value="online">🟢 在线</el-radio>
-            <el-radio value="offline">⚪ 离线</el-radio>
+            <el-radio value="offline">⚪️ 离线</el-radio>
           </el-radio-group>
         </el-form-item>
       </el-form>

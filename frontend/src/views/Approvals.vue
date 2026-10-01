@@ -248,7 +248,7 @@ function ticketStatusType(s) {
   }[s] || "info";
 }
 function slaIcon(s) {
-  return { normal: "🟢", warning: "🟠", overdue: "🔴" }[s] || "⚪";
+  return { normal: "🟢", warning: "🟠", overdue: "🔴" }[s] || "⚪️";
 }
 function slaColor(s) {
   return { normal: "#16a34a", warning: "#d97706", overdue: "#dc2626" }[s] || "#9ca3af";

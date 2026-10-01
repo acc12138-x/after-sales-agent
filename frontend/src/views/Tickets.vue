@@ -308,7 +308,7 @@ const stats = computed(() => {
 });
 
 function statusIcon(s) {
-  return { pending: "⏳", assigned: "📋", accepted: "✅", in_progress: "🔧", resolved: "🎯", closed: "🔒", rejected: "❌", cancelled: "🚫" }[s] || "❔";
+  return { pending: "⏳", assigned: "📋", accepted: "✅", in_progress: "🔧", resolved: "🎯", closed: "🔒", rejected: "❌", cancelled: "🚫" }[s] || "❔️";
 }
 function statusText(s) {
   return { pending: "待处理", assigned: "待接单", accepted: "已接单", in_progress: "处理中", resolved: "已解决", closed: "已关闭", rejected: "已拒单", cancelled: "已取消" }[s] || s;
@@ -322,7 +322,7 @@ function fmtTime(t) {
 }
 
 function slaIcon(s) {
-  return { normal: "🟢", warning: "🟠", overdue: "🔴" }[s] || "⚪";
+  return { normal: "🟢", warning: "🟠", overdue: "🔴" }[s] || "⚪️";
 }
 
 function slaText(row) {

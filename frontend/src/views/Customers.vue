@@ -261,7 +261,7 @@
         <el-row :gutter="12" style="margin-top:16px;">
           <el-col :span="6"><el-statistic title="总计" :value="importResult.total" /></el-col>
           <el-col :span="6"><el-statistic title="✅ 成功" :value="importResult.success" value-style="color:#16a34a;" /></el-col>
-          <el-col :span="6"><el-statistic title="⏭ 跳过" :value="importResult.skipped" value-style="color:#f59e0b;" /></el-col>
+          <el-col :span="6"><el-statistic title="⏭️ 跳过" :value="importResult.skipped" value-style="color:#f59e0b;" /></el-col>
           <el-col :span="6"><el-statistic title="❌ 失败" :value="importResult.failed" value-style="color:#ef4444;" /></el-col>
         </el-row>
 
@@ -303,7 +303,7 @@ const filters = reactive({ vip_level: "", risk_level: "", keyword: "" });
 function vipText(v) { return { normal: "普通", silver: "白银", gold: "黄金", diamond: "钻石" }[v] || v; }
 function vipType(v) { return { normal: "info", silver: "", gold: "warning", diamond: "danger" }[v] || "info"; }
 function riskText(v) { return { normal: "正常", suspicious: "疑似", high_risk: "高风险" }[v] || v; }
-function riskIcon(v) { return { normal: "🟢", suspicious: "🟠", high_risk: "🔴" }[v] || "❔"; }
+function riskIcon(v) { return { normal: "🟢", suspicious: "🟠", high_risk: "🔴" }[v] || "❔️"; }
 function riskType(v) { return { normal: "success", suspicious: "warning", high_risk: "danger" }[v] || "info"; }
 
 async function load() {

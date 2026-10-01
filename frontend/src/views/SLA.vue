@@ -152,7 +152,7 @@ const rulesTable = computed(() => {
 const warningRatio = computed(() => rulesRaw.value.warning_ratio || 0.3);
 
 function slaIcon(s) {
-  return { normal: "🟢", warning: "🟠", overdue: "🔴" }[s] || "⚪";
+  return { normal: "🟢", warning: "🟠", overdue: "🔴" }[s] || "⚪️";
 }
 
 function slaText(t) {

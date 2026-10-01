@@ -6,7 +6,7 @@
     <el-row :gutter="12" style="margin-bottom:16px;">
       <el-col :span="4"><el-card shadow="never" class="stat-card"><el-statistic title="总人数" :value="stats.total" /></el-card></el-col>
       <el-col :span="4"><el-card shadow="never" class="stat-card"><el-statistic title="🟢 在线" :value="stats.online" /></el-card></el-col>
-      <el-col :span="4"><el-card shadow="never" class="stat-card"><el-statistic title="⚪ 离线" :value="stats.offline" /></el-card></el-col>
+      <el-col :span="4"><el-card shadow="never" class="stat-card"><el-statistic title="⚪️ 离线" :value="stats.offline" /></el-card></el-col>
       <el-col :span="4"><el-card shadow="never" class="stat-card"><el-statistic title="👨‍💼 工程师" :value="stats.engineer" /></el-card></el-col>
       <el-col :span="4"><el-card shadow="never" class="stat-card"><el-statistic title="👔 主管" :value="stats.supervisor" /></el-card></el-col>
       <el-col :span="4">
@@ -24,7 +24,7 @@
         </el-select>
         <el-select v-model="filters.status" clearable placeholder="状态" style="width:120px;" @change="load">
           <el-option value="online" label="🟢 在线" />
-          <el-option value="offline" label="⚪ 离线" />
+          <el-option value="offline" label="⚪️ 离线" />
         </el-select>
         <el-input v-model="filters.keyword" placeholder="姓名/手机/飞书ID" clearable style="width:220px;" @keyup.enter="load" @clear="load" />
         <el-button type="primary" :icon="Search" @click="load">查询</el-button>
@@ -73,7 +73,7 @@
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="row.status === 'online' ? 'success' : 'info'" size="small">
-              {{ row.status === "online" ? "🟢 在线" : "⚪ 离线" }}
+              {{ row.status === "online" ? "🟢 在线" : "⚪️ 离线" }}
             </el-tag>
           </template>
         </el-table-column>
@@ -167,7 +167,7 @@
             <el-form-item label="状态" v-if="isEdit">
               <el-radio-group v-model="form.status">
                 <el-radio value="online">🟢 在线</el-radio>
-                <el-radio value="offline">⚪ 离线</el-radio>
+                <el-radio value="offline">⚪️ 离线</el-radio>
               </el-radio-group>
             </el-form-item>
           </el-form>
